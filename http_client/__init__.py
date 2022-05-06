@@ -505,7 +505,7 @@ class HttpClient:
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def put_url(self, host, uri, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
-                connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
+                connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False):
 
         request = BalancedHttpRequest(
