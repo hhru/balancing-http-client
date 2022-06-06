@@ -649,7 +649,8 @@ class HttpClient:
 
             log_method = http_client_logger.warning if is_server_error else http_client_logger.info
 
-        log_method(log_message, extra=debug_extra)
+        log_message_without_private_token = re.sub('oauth_token=\\w+', 'oauth_token=SECRET_USER_TOKEN', log_message)
+        log_method(log_message_without_private_token, extra=debug_extra)
 
         if response.code == 599:
             timings_info = (f'{stage}={timing * 1000:.3f}ms' for stage, timing in response.time_info.items())
