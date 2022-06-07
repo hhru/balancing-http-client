@@ -121,6 +121,7 @@ class Upstream:
         self.max_timeout_tries = int(config.get('max_timeout_tries', options.http_client_default_max_timeout_tries))
         self.connect_timeout = float(config.get('connect_timeout_sec', options.http_client_default_connect_timeout_sec))
         self.request_timeout = float(config.get('request_timeout_sec', options.http_client_default_request_timeout_sec))
+        self.speculative_timeout = float(config.get('speculative_timeout_sec', 0))
 
         self.slow_start_interval = float(config.get('slow_start_interval_sec', 0))
 
@@ -214,6 +215,7 @@ class Upstream:
         self.max_timeout_tries = upstream.max_timeout_tries
         self.connect_timeout = upstream.connect_timeout
         self.request_timeout = upstream.request_timeout
+        self.speculative_timeout = upstream.speculative_timeout
 
         self.slow_start_interval = upstream.slow_start_interval
 
@@ -291,7 +293,7 @@ class BalancedHttpRequest:
     def __init__(self, host: str, upstream: Upstream, source_app: str, uri: str, name: str,
                  method='GET', data=None, headers=None, files=None, content_type=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                 follow_redirects=True, idempotent=True):
+                 speculative_timeout=None, follow_redirects=True, idempotent=True):
         self.source_app = source_app
         self.uri = uri if uri.startswith('/') else '/' + uri
         self.upstream = upstream
@@ -301,8 +303,8 @@ class BalancedHttpRequest:
         self.request_timeout = request_timeout
         self.follow_redirects = follow_redirects
         self.idempotent = idempotent
+        self.speculative_timeout = speculative_timeout
         self.body = None
-        self.last_request = None
 
         if request_timeout is not None and max_timeout_tries is None:
             max_timeout_tries = options.http_client_default_max_timeout_tries
@@ -313,6 +315,8 @@ class BalancedHttpRequest:
             self.request_timeout = self.upstream.request_timeout
         if max_timeout_tries is None:
             max_timeout_tries = self.upstream.max_timeout_tries
+        if self.speculative_timeout is None:
+            self.speculative_timeout = self.upstream.speculative_timeout
 
         self.session_required = self.upstream.session_required
 
@@ -341,22 +345,15 @@ class BalancedHttpRequest:
             self.headers['Content-Type'] = content_type
         self.request_time_left = self.request_timeout * max_timeout_tries
         self.tries = OrderedDict()
-        self.current_host = host.rstrip('/')
-        self.current_server_index = None
-        self.current_rack = None
-        self.current_datacenter = None
+        self.balanced_host = host.rstrip('/')
 
     def make_request(self):
+        index, host, rack, datacenter = None, None, None, None
         if self.upstream.balanced:
             index, host, rack, datacenter = self.upstream.borrow_server(self.tries.keys() if self.tries else None)
 
-            self.current_server_index = index
-            self.current_host = host
-            self.current_rack = rack
-            self.current_datacenter = datacenter
-
         request = HTTPRequest(
-            url=(self.get_calling_address()) + self.uri,
+            url=(self.get_calling_address(self.get_host(host))) + self.uri,
             body=self.body,
             method=self.method,
             headers=self.headers,
@@ -364,25 +361,32 @@ class BalancedHttpRequest:
             connect_timeout=self.connect_timeout,
             request_timeout=self.request_timeout,
         )
+        request.current_server_index = index
+        request.current_host = host
+        request.current_rack = rack
+        request.current_datacenter = datacenter
 
-        request.upstream_name = self.upstream.name if self.upstream.balanced else self.current_host
-        request.upstream_datacenter = self.current_datacenter
+        request.upstream_name = self.get_host_name()
+        request.upstream_datacenter = datacenter
 
         if options.http_proxy_host is not None:
             request.proxy_host = options.http_proxy_host
             request.proxy_port = options.http_proxy_port
 
-        self.last_request = request
-        return self.last_request
+        return request
 
-    def backend_available(self):
-        return self.current_host is not None
+    @staticmethod
+    def backend_available(host):
+        return host is not None
 
-    def get_calling_address(self):
-        return self.current_host if self.backend_available() else self.upstream.name
+    def get_calling_address(self, host):
+        return host if self.backend_available(host) else self.upstream.name
 
-    def get_host(self):
-        return self.upstream.name if self.upstream.balanced else self.current_host
+    def get_host_name(self):
+        return self.upstream.name if self.upstream.balanced else self.balanced_host
+
+    def get_host(self, host):
+        return host if self.upstream.balanced else self.balanced_host
 
     def check_retry(self, response):
         self.request_time_left -= response.request_time
@@ -390,26 +394,27 @@ class BalancedHttpRequest:
         if self.upstream.balanced:
             do_retry = self.upstream.retry_policy.check_retry(response, self.idempotent)
 
-            if self.current_server_index is not None:
-                self.upstream.return_server(self.current_server_index)
+            if response.request.current_server_index is not None:
+                self.upstream.return_server(response.request.current_server_index)
         else:
             do_retry = False
 
         do_retry = do_retry and self.upstream.max_tries > len(self.tries) and self.request_time_left > 0
         return do_retry
 
-    def pop_last_request(self):
-        request = self.last_request
-        self.last_request = None
-        return request
+    def check_speculative_retry(self):
+        return self.idempotent and self.upstream.max_tries > len(self.tries)
+
+    def enable_speculative_retry(self):
+        return self.speculative_timeout != 0
 
     def register_try(self, response):
-        index = self.current_server_index if self.current_server_index else len(self.tries)
+        index = response.request.current_server_index if response.request.current_server_index else len(self.tries)
         self.tries[index] = ResponseData(response.code, str(response.error))
 
     @staticmethod
-    def get_url(request):
-        return f'http://{request.get_host()}{request.uri}'
+    def get_url(request, host):
+        return f'http://{host}{request.uri}'
 
     @staticmethod
     def get_trace(request):
@@ -418,7 +423,7 @@ class BalancedHttpRequest:
                 if index < len(request.upstream.servers) and request.upstream.servers[index]:
                     return request.upstream.servers[index].address
                 return f'no_idx_{index}_in_upstream'
-            return request.get_calling_address()
+            return request.balanced_host
 
         return ' -> '.join([f'{_get_server_address(index)}~{data.responseCode}~{data.msg}'
                             for index, data in request.tries.items()])
@@ -472,22 +477,22 @@ class HttpClient:
 
     def get_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                callback=None, parse_response=True, parse_on_error=False, fail_fast=False):
+                callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'GET', data, headers, None, None,
-            connect_timeout, request_timeout, max_timeout_tries, follow_redirects
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def head_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                 callback=None, fail_fast=False):
+                 callback=None, fail_fast=False, speculative_timeout=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'HEAD', data, headers, None, None,
-            connect_timeout, request_timeout, max_timeout_tries, follow_redirects
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects
         )
 
         return self._fetch_with_retry(request, callback, False, False, fail_fast)
@@ -495,33 +500,33 @@ class HttpClient:
     def post_url(self, host, uri, *,
                  name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
-                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False):
+                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'POST', data, headers, files, content_type,
-            connect_timeout, request_timeout, max_timeout_tries, follow_redirects, idempotent
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects, idempotent
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def put_url(self, host, uri, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
-                callback=None, parse_response=True, parse_on_error=False, fail_fast=False):
+                callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'PUT', data, headers, None, content_type,
-            connect_timeout, request_timeout, max_timeout_tries, follow_redirects, idempotent
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects, idempotent
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def delete_url(self, host, uri, *, name=None, data=None, headers=None, content_type=None,
                    connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                   callback=None, parse_response=True, parse_on_error=False, fail_fast=False):
+                   callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'DELETE', data, headers, None, content_type,
-            connect_timeout, request_timeout, max_timeout_tries
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
@@ -531,11 +536,14 @@ class HttpClient:
         future = Future()
 
         def request_finished_callback(response):
+            if future.done():
+                return
+
             if self.statsd_client is not None and len(balanced_request.tries) > 1:
                 self.statsd_client.count(
                     'http.client.retries', 1,
-                    upstream=balanced_request.get_host(),
-                    dc=balanced_request.current_datacenter,
+                    upstream=balanced_request.get_host_name(),
+                    dc=response.request.current_datacenter,
                     first_status=next(iter(balanced_request.tries.values())).responseCode,
                     tries=len(balanced_request.tries),
                     status=response.code
@@ -549,7 +557,6 @@ class HttpClient:
             if fail_fast and result.failed:
                 future.set_exception(FailFastError(result))
                 return
-
             future.set_result(result)
 
         def retry_callback(response_future):
@@ -563,7 +570,7 @@ class HttpClient:
             else:
                 response = response_future.result()
 
-            request = balanced_request.pop_last_request()
+            request = response.request
             retries_count = len(balanced_request.tries)
 
             response, debug_extra = self._unwrap_debug(balanced_request, request, response, retries_count)
@@ -578,19 +585,31 @@ class HttpClient:
 
             request_finished_callback(response)
 
+        def speculative_retry():
+            if future.done():
+                return
+            do_retry = balanced_request.check_speculative_retry()
+            if do_retry:
+                IOLoop.current().add_future(self._fetch(balanced_request), retry_callback)
+                return
+
         if callable(self.modify_http_request_hook):
             self.modify_http_request_hook(balanced_request)
+
         IOLoop.current().add_future(self._fetch(balanced_request), retry_callback)
+        if balanced_request.enable_speculative_retry():
+            IOLoop.current().call_later(balanced_request.speculative_timeout, speculative_retry)
 
         return future
 
     def _fetch(self, balanced_request):
         request = balanced_request.make_request()
 
-        if not balanced_request.backend_available():
+        if not balanced_request.backend_available(balanced_request.get_host(request.current_host)):
             future = Future()
             future.set_result(HTTPResponse(
-                request, 502, error=HTTPError(502, 'No backend available for ' + balanced_request.get_host()),
+                request, 502, error=HTTPError(502, 'No backend available for ' +
+                                              balanced_request.get_host_name()),
                 request_time=0
             ))
             return future
@@ -624,8 +643,8 @@ class HttpClient:
                     '_response': response,
                     '_request': request,
                     '_request_retry': retries_count,
-                    '_rack': balanced_request.current_rack,
-                    '_datacenter': balanced_request.current_datacenter,
+                    '_rack': response.request.current_rack,
+                    '_datacenter': response.request.current_datacenter,
                     '_balanced_request': balanced_request
                 })
         except Exception:
@@ -636,6 +655,8 @@ class HttpClient:
     def _log_response(self, balanced_request, response, retries_count, do_retry, debug_extra):
         size = f' {len(response.body)} bytes' if response.body is not None else ''
         is_server_error = response.code >= 500
+        request = response.request
+        host = request.current_host
         if do_retry:
             retry = f' on retry {retries_count}' if retries_count > 0 else ''
             log_message = f'balanced_request_response: {response.code} got {size}{retry}, will retry ' \
@@ -644,7 +665,8 @@ class HttpClient:
         else:
             msg_label = 'balanced_request_final_error' if is_server_error else 'balanced_request_final_response'
             log_message = f'{msg_label}: {response.code} got {size}' \
-                          f'{balanced_request.method} {BalancedHttpRequest.get_url(balanced_request)}, ' \
+                          f'{balanced_request.method} ' \
+                          f'{BalancedHttpRequest.get_url(balanced_request, balanced_request.get_host(host))}, ' \
                           f'trace: {BalancedHttpRequest.get_trace(balanced_request)}'
 
             log_method = http_client_logger.warning if is_server_error else http_client_logger.info
@@ -659,24 +681,24 @@ class HttpClient:
             self.statsd_client.stack()
             self.statsd_client.count(
                 'http.client.requests', 1,
-                upstream=balanced_request.get_host(),
-                dc=balanced_request.current_datacenter,
+                upstream=balanced_request.get_host_name(),
+                dc=request.current_datacenter,
                 final='false' if do_retry else 'true',
                 status=response.code
             )
             self.statsd_client.time(
                 'http.client.request.time',
                 int(response.request_time * 1000),
-                dc=balanced_request.current_datacenter,
-                upstream=balanced_request.get_host()
+                dc=request.current_datacenter,
+                upstream=balanced_request.get_host_name()
             )
             self.statsd_client.flush()
 
         if self.kafka_producer is not None and not do_retry:
-            dc = balanced_request.current_datacenter or options.datacenter or 'unknown'
-            current_host = balanced_request.current_host or 'unknown'
+            dc = request.current_datacenter or options.datacenter or 'unknown'
+            current_host = host or 'unknown'
             request_id = balanced_request.headers.get('X-Request-Id', 'unknown')
-            upstream = balanced_request.get_host() or 'unknown'
+            upstream = balanced_request.get_host_name() or 'unknown'
 
             asyncio.get_event_loop().create_task(self.kafka_producer.send(
                 'metrics_requests',
