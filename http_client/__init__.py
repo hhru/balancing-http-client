@@ -142,7 +142,7 @@ class Upstream:
         should_rescale_remote_dc = options.http_client_allow_cross_datacenter_requests
 
         if exclude is not None:
-            tried_racks = {self.servers[index].rack for index in exclude if self.servers[index] is not None}
+            tried_racks = {server.rack for server in self.servers if server.address in exclude}
         else:
             tried_racks = None
 
@@ -172,12 +172,12 @@ class Upstream:
 
             weights = (groups, current_load, load)
 
-            if (exclude is None or index not in exclude) and (min_index is None or weights < min_weights):
+            if (exclude is None or server.address not in exclude) and (min_index is None or weights < min_weights):
                 min_weights = weights
                 min_index = index
 
         if min_index is None:
-            return None, None, None, None
+            return None, None, None
 
         if should_rescale_local_dc or should_rescale_remote_dc:
             for server in self.servers:
@@ -200,10 +200,10 @@ class Upstream:
             else:
                 http_client_logger.info('request to %s during slow start, upstream: %s', server.address, self.name)
 
-        return min_index, server.address, server.rack, server.datacenter
+        return server.address, server.rack, server.datacenter
 
-    def return_server(self, index):
-        server = self.servers[index]
+    def return_server(self, host):
+        server = next((server for server in self.servers if server.address == host), None)
         if server is not None:
             if server.current_requests > 0:
                 server.current_requests -= 1
@@ -348,9 +348,9 @@ class BalancedHttpRequest:
         self.balanced_host = host.rstrip('/')
 
     def make_request(self):
-        index, host, rack, datacenter = None, None, None, None
+        host, rack, datacenter = None, None, None
         if self.upstream.balanced:
-            index, host, rack, datacenter = self.upstream.borrow_server(self.tries.keys() if self.tries else None)
+            host, rack, datacenter = self.upstream.borrow_server(self.tries.keys() if self.tries else None)
 
         request = HTTPRequest(
             url=(self.get_calling_address(self.get_host(host))) + self.uri,
@@ -361,7 +361,6 @@ class BalancedHttpRequest:
             connect_timeout=self.connect_timeout,
             request_timeout=self.request_timeout,
         )
-        request.current_server_index = index
         request.current_host = host
         request.current_rack = rack
         request.current_datacenter = datacenter
@@ -394,8 +393,8 @@ class BalancedHttpRequest:
         if self.upstream.balanced:
             do_retry = self.upstream.retry_policy.check_retry(response, self.idempotent)
 
-            if response.request.current_server_index is not None:
-                self.upstream.return_server(response.request.current_server_index)
+            if response.request.current_host is not None:
+                self.upstream.return_server(response.request.current_host)
         else:
             do_retry = False
 
@@ -409,8 +408,8 @@ class BalancedHttpRequest:
         return self.speculative_timeout != 0
 
     def register_try(self, response):
-        index = response.request.current_server_index if response.request.current_server_index else len(self.tries)
-        self.tries[index] = ResponseData(response.code, str(response.error))
+        host = self.get_host(response.request.current_host)
+        self.tries[host] = ResponseData(response.code, str(response.error))
 
     @staticmethod
     def get_url(request, host):
@@ -418,15 +417,13 @@ class BalancedHttpRequest:
 
     @staticmethod
     def get_trace(request):
-        def _get_server_address(index):
+        def _get_server_address(host):
             if request.upstream.balanced:
-                if index < len(request.upstream.servers) and request.upstream.servers[index]:
-                    return request.upstream.servers[index].address
-                return f'no_idx_{index}_in_upstream'
+                return host
             return request.balanced_host
 
-        return ' -> '.join([f'{_get_server_address(index)}~{data.responseCode}~{data.msg}'
-                            for index, data in request.tries.items()])
+        return ' -> '.join([f'{_get_server_address(host)}~{data.responseCode}~{data.msg}'
+                            for host, data in request.tries.items()])
 
 
 class HttpClientFactory:

@@ -21,13 +21,14 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
     for commands in timeline:
         for (index, borrow) in commands:
             if borrow:
-                fd, address, _, _ = upstream.borrow_server()
-                done[fd] = done[fd] + 1
-                mapping[index] = fd
+                address, _, _ = upstream.borrow_server()
+                address_index = next((i for i, server in enumerate(upstream.servers)
+                                      if server.address == address), None)
+                done[address_index] = done[address_index] + 1
+                mapping[index] = address_index
             else:
-                upstream.return_server(mapping[index])
+                upstream.return_server(upstream.servers[mapping[index]])
                 del mapping[index]
-
     return done
 
 
