@@ -203,7 +203,7 @@ class Upstream:
         return server.address, server.rack, server.datacenter
 
     def return_server(self, host):
-        server = next((server for server in self.servers if server.address == host), None)
+        server = next((server for server in self.servers if server is not None and server.address == host), None)
         if server is not None:
             if server.current_requests > 0:
                 server.current_requests -= 1
