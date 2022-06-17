@@ -99,6 +99,14 @@ class TestHttpClientBalancer(unittest.TestCase):
 
         self.assertEqual(_total_requests(upstream), 2)
 
+    def test_return_none_server(self):
+        upstream = self._upstream([Server('1', 1, rack='rack1', dc='test')])
+        upstream.servers[0] = None
+        try:
+            upstream.return_server('some_address')
+        except AttributeError:
+            self.fail('return server raised exception')
+
     def test_replace_in_process(self):
         upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 5, dc='test')])
 
