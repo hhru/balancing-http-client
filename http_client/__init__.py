@@ -142,7 +142,7 @@ class Upstream:
         should_rescale_remote_dc = options.http_client_allow_cross_datacenter_requests
 
         if exclude is not None:
-            tried_racks = {server.rack for server in self.servers if server.address in exclude}
+            tried_racks = {server.rack for server in self.servers if server is not None and server.address in exclude}
         else:
             tried_racks = None
 
