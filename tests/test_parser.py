@@ -22,7 +22,7 @@ class TestParser(unittest.TestCase):
                                 'connect_timeout_sec': '0.2',
                                 'max_timeout_tries': '1',
                                 'slow_start_interval_sec': '150',
-                                'speculative_timeout_sec': '0.5',
+                                'speculative_timeout_pct': '0.5',
                                 'session_required': 'true',
                             }
                         }
@@ -37,7 +37,7 @@ class TestParser(unittest.TestCase):
         self.assertEqual(config['connect_timeout_sec'], '0.2')
         self.assertEqual(config['max_timeout_tries'], '1')
         self.assertEqual(config['slow_start_interval_sec'], '150')
-        self.assertEqual(config['speculative_timeout_sec'], '0.5')
+        self.assertEqual(config['speculative_timeout_pct'], '0.5')
         self.assertEqual(config['session_required'], 'true')
 
     def test_parse_config_default_value(self):
@@ -58,7 +58,7 @@ class TestParser(unittest.TestCase):
 
         self.assertEqual(config['max_tries'], '3')
         self.assertEqual(config['session_required'], options.http_client_default_session_required)
-        self.assertEqual(config['speculative_timeout_sec'], 0)
+        self.assertEqual(config['speculative_timeout_pct'], 0)
 
     def test_parse_health_service(self):
         value = [
