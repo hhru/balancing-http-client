@@ -121,7 +121,7 @@ class Upstream:
         self.max_timeout_tries = int(config.get('max_timeout_tries', options.http_client_default_max_timeout_tries))
         self.connect_timeout = float(config.get('connect_timeout_sec', options.http_client_default_connect_timeout_sec))
         self.request_timeout = float(config.get('request_timeout_sec', options.http_client_default_request_timeout_sec))
-        self.speculative_timeout = float(config.get('speculative_timeout_sec', 0))
+        self.speculative_timeout_pct = float(config.get('speculative_timeout_pct', 0))
 
         self.slow_start_interval = float(config.get('slow_start_interval_sec', 0))
 
@@ -215,7 +215,7 @@ class Upstream:
         self.max_timeout_tries = upstream.max_timeout_tries
         self.connect_timeout = upstream.connect_timeout
         self.request_timeout = upstream.request_timeout
-        self.speculative_timeout = upstream.speculative_timeout
+        self.speculative_timeout_pct = upstream.speculative_timeout_pct
 
         self.slow_start_interval = upstream.slow_start_interval
 
@@ -293,7 +293,7 @@ class BalancedHttpRequest:
     def __init__(self, host: str, upstream: Upstream, source_app: str, uri: str, name: str,
                  method='GET', data=None, headers=None, files=None, content_type=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                 speculative_timeout=None, follow_redirects=True, idempotent=True):
+                 speculative_timeout_pct=None, follow_redirects=True, idempotent=True):
         self.source_app = source_app
         self.uri = uri if uri.startswith('/') else '/' + uri
         self.upstream = upstream
@@ -303,7 +303,7 @@ class BalancedHttpRequest:
         self.request_timeout = request_timeout
         self.follow_redirects = follow_redirects
         self.idempotent = idempotent
-        self.speculative_timeout = speculative_timeout
+        self.speculative_timeout_pct = speculative_timeout_pct
         self.body = None
 
         if request_timeout is not None and max_timeout_tries is None:
@@ -315,13 +315,14 @@ class BalancedHttpRequest:
             self.request_timeout = self.upstream.request_timeout
         if max_timeout_tries is None:
             max_timeout_tries = self.upstream.max_timeout_tries
-        if self.speculative_timeout is None:
-            self.speculative_timeout = self.upstream.speculative_timeout
+        if self.speculative_timeout_pct is None:
+            self.speculative_timeout_pct = self.upstream.speculative_timeout_pct
 
         self.session_required = self.upstream.session_required
 
         self.connect_timeout *= options.timeout_multiplier
         self.request_timeout *= options.timeout_multiplier
+        self.speculative_timeout = self.request_timeout * self.speculative_timeout_pct
 
         self.headers = HTTPHeaders() if headers is None else HTTPHeaders(headers)
         if self.source_app and not self.headers.get(USER_AGENT_HEADER):
@@ -405,7 +406,7 @@ class BalancedHttpRequest:
         return self.idempotent and self.upstream.max_tries > len(self.tries)
 
     def enable_speculative_retry(self):
-        return self.speculative_timeout != 0
+        return 0 < self.speculative_timeout_pct < 1
 
     def register_try(self, response):
         host = self.get_host(response.request.current_host)
@@ -474,22 +475,23 @@ class HttpClient:
 
     def get_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
+                callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
+                speculative_timeout_pct=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'GET', data, headers, None, None,
-            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def head_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                 callback=None, fail_fast=False, speculative_timeout=None):
+                 callback=None, fail_fast=False, speculative_timeout_pct=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'HEAD', data, headers, None, None,
-            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects
         )
 
         return self._fetch_with_retry(request, callback, False, False, fail_fast)
@@ -497,33 +499,36 @@ class HttpClient:
     def post_url(self, host, uri, *,
                  name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
-                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
+                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
+                 speculative_timeout_pct=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'POST', data, headers, files, content_type,
-            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects, idempotent
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects, idempotent
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def put_url(self, host, uri, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
-                callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
+                callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
+                speculative_timeout_pct=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'PUT', data, headers, None, content_type,
-            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout, follow_redirects, idempotent
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects, idempotent
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
 
     def delete_url(self, host, uri, *, name=None, data=None, headers=None, content_type=None,
                    connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                   callback=None, parse_response=True, parse_on_error=False, fail_fast=False, speculative_timeout=None):
+                   callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
+                   speculative_timeout_pct=None):
 
         request = BalancedHttpRequest(
             host, self.get_upstream(host), self.source_app, uri, name, 'DELETE', data, headers, None, content_type,
-            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout
+            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct
         )
 
         return self._fetch_with_retry(request, callback, parse_response, parse_on_error, fail_fast)
