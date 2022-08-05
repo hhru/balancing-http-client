@@ -1,8 +1,6 @@
 import json
 import unittest
 
-import tornado
-
 from http_client import Upstream
 from http_client.options import options
 from http_client.consul_parser import parse_consul_upstream_config, parse_consul_health_servers_data
@@ -116,7 +114,7 @@ class TestParser(unittest.TestCase):
         self.assertEqual(len(servers), 1)
 
     def test_parse_health_service_not_test_datacenter_with_self_enabled_filter(self):
-        tornado.options.options.self_node_filter_enabled = True
+        options.self_node_filter_enabled = True
         value = [
             {
                 'Node': {

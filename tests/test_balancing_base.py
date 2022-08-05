@@ -1,9 +1,8 @@
-import tornado
 from tornado.httpclient import AsyncHTTPClient
 from tornado.testing import AsyncHTTPTestCase
 from tornado.web import RequestHandler, Application
 
-from http_client import HttpClientFactory, Server, Upstream
+from http_client import HttpClientFactory, Server, Upstream, options
 
 
 class WorkingHandler(RequestHandler):
@@ -29,7 +28,7 @@ class BalancingClientMixin:
         super().setUp()
         self.http_client_factory = HttpClientFactory('testapp', self.http_client)
         self.balancing_client = self.http_client_factory.get_http_client()
-        tornado.options.options.datacenter = 'test'
+        options.datacenter = 'test'
 
     def get_upstream_config(self):
         return {'request_timeout_sec': 0.5}
