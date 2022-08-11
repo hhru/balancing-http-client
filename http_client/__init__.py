@@ -696,6 +696,13 @@ class HttpClient:
             )
             self.statsd_client.flush()
 
+        dc = request.current_datacenter or options.datacenter or 'unknown'
+        current_host = host or 'unknown'
+        request_id = balanced_request.headers.get('X-Request-Id', 'unknown')
+        upstream = balanced_request.get_host_name() or 'unknown'
+        logging.getLogger('qqqq').error(f'{{"app":"{options.app}","dc":"{dc}","hostname":"{current_host}",'
+                                        f'"requestId":"{request_id}","status":{response.code},'
+                                        f'"ts":{int(time.time())},"upstream":"{upstream}"}}')
         if self.kafka_producer is not None and not do_retry:
             dc = request.current_datacenter or options.datacenter or 'unknown'
             current_host = host or 'unknown'
