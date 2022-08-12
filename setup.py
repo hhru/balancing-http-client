@@ -18,7 +18,7 @@ class TestHook(test):
 
 setup(
     name='balancing-http-client',
-    version='1.2.4',
+    version='1.3.1',
     description='Balancing http client for tornado',
     url='https://github.com/hhru/balancing-http-client',
     cmdclass={
