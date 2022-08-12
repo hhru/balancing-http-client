@@ -1,22 +1,34 @@
-from tornado.options import define, options as tornado_options
+from dataclasses import dataclass, field, fields
 
 
-options = tornado_options
+@dataclass
+class Options:
+    app: str = None
+    datacenter: str = None
+    datacenters: list = field(default_factory=lambda: [])
 
-define('datacenter', default=None, type=str)
-define('datacenters', default=[], type=list)
+    timeout_multiplier: float = 1.0
+    http_client_default_connect_timeout_sec: float = 0.2
+    http_client_default_request_timeout_sec: float = 2.0
+    http_client_default_max_tries: int = 2
+    http_client_default_max_timeout_tries: int = 1
+    http_client_default_retry_policy: dict = field(default_factory=lambda: {599: False, 503: False})
+    http_client_default_retry_policy_cassandra: str = 'timeout,http_503'
+    http_client_default_session_required: bool = False
+    http_proxy_host: str = None
+    http_proxy_port: int = 3128
+    http_client_allow_cross_datacenter_requests: bool = False
+    self_node_filter_enabled: bool = False
+    node_name: str = ''
 
-define('timeout_multiplier', default=1.0, type=float)
-define('http_client_default_connect_timeout_sec', default=0.2, type=float)
-define('http_client_default_request_timeout_sec', default=2.0, type=float)
-define('http_client_default_max_tries', default=2, type=int)
-define('http_client_default_max_timeout_tries', default=1, type=int)
-define('http_client_default_retry_policy', default={599: False, 503: False}, type=dict)
-define('http_client_default_retry_policy_cassandra', default='timeout,http_503', type=str)
-define('http_client_default_session_required', default=False, type=bool)
-define('http_proxy_host', default=None, type=str)
-define('http_proxy_port', default=3128, type=int)
-define('http_client_allow_cross_datacenter_requests', default=False, type=bool)
-define('self_node_filter_enabled', default=False, type=bool)
-if 'node_name' not in options:
-    define('node_name', default='', type=str)
+
+options = Options()
+
+
+def parse_config_file(path):
+    config = {}
+    with open(path, 'rb') as config_file:
+        exec(config_file.read(), config, config)
+
+    for f in fields(Options):
+        setattr(options, f.name, config.get(f.name, getattr(options, f.name)))
