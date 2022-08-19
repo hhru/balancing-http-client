@@ -92,7 +92,8 @@ class RetryPolicy:
     def check_retry(self, response, idempotent):
         if response.code == 599:
             error = str(response.error)
-            if error.startswith('HTTP 599: Failed to connect') or error.startswith('HTTP 599: Connection timed out'):
+            if error.startswith('HTTP 599: Failed to connect') or error.startswith('HTTP 599: Connection timed out') \
+                    or error.startswith('HTTP 599: Connection timeout'):
                 return True
 
         if response.code not in self.statuses:
