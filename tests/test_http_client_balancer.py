@@ -49,16 +49,6 @@ class TestHttpClientBalancer(unittest.TestCase):
         self.assertEqual(len(upstream.servers), 2)
         self.assertEqual(_total_weight(upstream), 7)
 
-    def test_shuffle_servers(self):
-        upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 2, dc='test'), Server('3', 3, dc='test')])
-        upstream2 = self._upstream([Server('3', 3, dc='test'), Server('1', 1, dc='test'), Server('2', 2, dc='test')])
-        upstream.update(upstream2)
-
-        self.assertEqual(len(upstream.servers), 3)
-        self.assertEqual(_total_weight(upstream), 6)
-        self.assertEqual(upstream.servers[0].address, '1')
-        self.assertEqual(upstream.servers[1].address, '2')
-
     def test_remove_add_server_one_by_one(self):
         upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 1, dc='test')])
         upstream2 = self._upstream([Server('2', 1, dc='test')])
