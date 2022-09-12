@@ -68,18 +68,15 @@ class Server:
 
     def update(self, server):
         if self.weight != server.weight:
-            http_client_logger.debug(f'weight has been changed to {server.weight} for server {server}')
             ratio = float(server.weight) / float(self.weight)
             self.requests = int(self.requests * ratio)
-            http_client_logger.debug(f'new requests count={self.requests}')
 
         self.weight = server.weight
         self.rack = server.rack
         self.datacenter = server.datacenter
 
     def __str__(self) -> str:
-        return f'{{address={self.address}, weight={self.weight}, dc={self.datacenter},' \
-               f' current_requests={self.current_requests}, requests={self.requests} }}'
+        return f'{{address={self.address}, weight={self.weight}, dc={self.datacenter}}}'
 
 
 class RetryPolicy:
@@ -175,8 +172,7 @@ class Upstream:
             load = server.requests / float(server.weight)
 
             weights = (groups, current_load, load)
-            http_client_logger.debug(f'current weights for server {server} are {weights},'
-                                     f' min_weights={min_weights}, min_index={min_index}')
+
             if (exclude is None or server.address not in exclude) and (min_index is None or weights < min_weights):
                 min_weights = weights
                 min_index = index
@@ -190,13 +186,10 @@ class Upstream:
                     is_same_dc = server.datacenter == options.datacenter
                     if (should_rescale_local_dc and is_same_dc) or (should_rescale_remote_dc and not is_same_dc):
                         server.requests -= server.weight
-                        http_client_logger.debug(f'{server} has been rescaled'
-                                                 f' Old requests count={server.requests + server.weight}')
 
         server = self.servers[min_index]
         server.requests += 1
         server.current_requests += 1
-        http_client_logger.debug(f'{server} was borrowed')
 
         if server.join_strategy is not None:
             if server.join_strategy.is_complete():
@@ -359,7 +352,6 @@ class BalancedHttpRequest:
     def make_request(self):
         host, rack, datacenter = None, None, None
         if self.upstream.balanced:
-            http_client_logger.debug(f'request already tried on {self.tries.keys()}')
             host, rack, datacenter = self.upstream.borrow_server(self.tries.keys() if self.tries else None)
 
         request = HTTPRequest(
