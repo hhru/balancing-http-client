@@ -1,7 +1,8 @@
 import random
 import unittest
 
-from http_client import Upstream, Server
+from http_client import options
+from http_client.balancing import Upstream, Server
 
 
 def run_simulation(upstream, requests_interval, requests, max_execution_time):
@@ -19,15 +20,15 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
         timeline[start_time + request_time].append((i, False))
 
     for commands in timeline:
-        for (index, borrow) in commands:
-            if borrow:
-                address, _, _ = upstream.borrow_server()
+        for (index, acquire) in commands:
+            if acquire:
+                address, _ = upstream.acquire_server()
                 address_index = next((i for i, server in enumerate(upstream.servers)
                                       if server.address == address), None)
                 done[address_index] = done[address_index] + 1
                 mapping[index] = address_index
             else:
-                upstream.return_server(upstream.servers[mapping[index]])
+                upstream.release_server([upstream.servers[mapping[index]].address])
                 del mapping[index]
     return done
 
@@ -37,6 +38,10 @@ def _upstream(weights):
 
 
 class TestHttpError(unittest.TestCase):
+
+    def setUp(self) -> None:
+        options.datacenter = "test"
+
     def check_distribution(self, requests, weights):
         if len(requests) != len(weights) or len(requests) <= 1:
             raise ValueError(f'invalid input data: {requests}, {weights}')

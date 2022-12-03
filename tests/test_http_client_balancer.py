@@ -1,6 +1,7 @@
 import unittest
 
-from http_client import Upstream, Server
+from http_client import options
+from http_client.balancing import Upstream, Server
 
 
 def _total_weight(upstream):
@@ -12,6 +13,11 @@ def _total_requests(upstream):
 
 
 class TestHttpClientBalancer(unittest.TestCase):
+
+    def setUp(self) -> None:
+        super().setUp()
+        options.datacenter = "test"
+
     @staticmethod
     def _upstream(servers, config=None):
         return Upstream('upstream', {} if config is None else config, servers)
@@ -63,57 +69,54 @@ class TestHttpClientBalancer(unittest.TestCase):
         self.assertEqual(len(upstream.servers), 2)
         self.assertEqual(_total_weight(upstream), 11)
 
-    def test_borrow_server(self):
+    def test_acquire_server(self):
         upstream = self._upstream([Server('1', 2, dc='test'), Server('2', 1, dc='test')])
 
-        address, _, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '1')
 
-        address, _, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '2')
 
-        address, _, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '1')
 
-        address, _, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '1')
 
         self.assertEqual(_total_requests(upstream), 4)
 
-    def test_borrow_return_server(self):
-        upstream = self._upstream([Server('1', 1, rack='rack1', dc='test'), Server('2', 5, rack='rack2', dc='test')])
+    def test_acquire_release_server(self):
+        upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 5, dc='test')])
 
-        address, rack, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '1')
-        self.assertEqual(rack, 'rack1')
 
-        address, rack, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '2')
-        self.assertEqual(rack, 'rack2')
 
-        upstream.return_server(address)
+        upstream.release_server(address)
 
-        address, rack, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '2')
-        self.assertEqual(rack, 'rack2')
 
         self.assertEqual(_total_requests(upstream), 2)
 
-    def test_return_none_server(self):
-        upstream = self._upstream([Server('1', 1, rack='rack1', dc='test')])
+    def test_release_none_server(self):
+        upstream = self._upstream([Server('1', 1, dc='test')])
         upstream.servers[0] = None
         try:
-            upstream.return_server('some_address')
+            upstream.release_server('some_address')
         except AttributeError:
             self.fail('return server raised exception')
 
     def test_replace_in_process(self):
         upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 5, dc='test')])
 
-        address_1, _, _ = upstream.borrow_server()
+        address_1, _ = upstream.acquire_server()
         self.assertEqual(address_1, '1')
 
-        address_2, _, _ = upstream.borrow_server()
+        address_2, _ = upstream.acquire_server()
         self.assertEqual(address_2, '2')
 
         server = Server('3', 1, dc='test')
@@ -122,33 +125,35 @@ class TestHttpClientBalancer(unittest.TestCase):
 
         self.assertEqual(_total_requests(upstream), 1)
 
-        upstream.return_server(address_1)
+        upstream.release_server(address_1)
 
         self.assertEqual(_total_requests(upstream), 0)
         self.assertEqual(server.current_requests, 0)
 
-        address, _, _ = upstream.borrow_server()
+        address, _ = upstream.acquire_server()
+        self.assertEqual(address, '1')
+
+        address, _ = upstream.acquire_server()
         self.assertEqual(address, '3')
 
-    def test_create_with_rack_and_datacenter(self):
-        upstream = self._upstream([Server('1', 1, rack='rack1', dc='dc1'), Server('2', 1, dc='test')])
+    def test_create_with_datacenter(self):
+        upstream = self._upstream([Server('1', 1, dc='dc1'), Server('2', 1, dc='test')])
 
         self.assertEqual(len(upstream.servers), 2)
-        self.assertEqual([server.rack for server in upstream.servers if server is not None], ['rack1', None])
         self.assertEqual([server.datacenter for server in upstream.servers if server is not None], ['dc1', 'test'])
 
     def test_slow_start_on_server(self):
         servers = [Server('1', 1, dc='test'), Server('2', 1, dc='test')]
         upstream = Upstream('upstream', {'slow_start_interval_sec': 10}, servers)
 
-        self.assertIsNotNone(upstream.servers[0].join_strategy)
-        self.assertIsNotNone(upstream.servers[1].join_strategy)
+        self.assertTrue(upstream.servers[0].slow_start_end_time > 0)
+        self.assertTrue(upstream.servers[1].slow_start_end_time > 0)
 
     def test_session_required_true(self):
         servers = [Server('1', 1, dc='test'), Server('2', 1, dc='test')]
         upstream = Upstream('upstream', {'session_required': 'true'}, servers)
 
-        self.assertEqual(upstream.session_required, True)
+        self.assertEqual(upstream.session_required, 'true')
 
     def test_session_required_false(self):
         servers = [Server('1', 1, dc='test'), Server('2', 1, dc='test')]
