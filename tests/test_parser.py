@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from http_client import Upstream
+from http_client.balancing import Upstream
 from http_client.options import options
 from http_client.consul_parser import parse_consul_upstream_config, parse_consul_health_servers_data
 

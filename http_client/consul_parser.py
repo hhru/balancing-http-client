@@ -3,7 +3,7 @@ import logging
 
 from http_client.util import restore_original_datacenter_name
 
-from http_client import Server
+from http_client.balancing import Server
 
 from http_client.options import options
 
