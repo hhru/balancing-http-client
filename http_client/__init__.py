@@ -104,7 +104,7 @@ class RequestBuilder:
         request.idempotent = self.idempotent
         request.speculative_timeout_pct = self.speculative_timeout_pct
 
-        request.upstream_name = None
+        request.upstream_name = self.host
         request.upstream_datacenter = None
 
         if options.http_proxy_host is not None:

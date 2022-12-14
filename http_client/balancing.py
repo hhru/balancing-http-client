@@ -502,7 +502,7 @@ class RequestBalancer(RequestEngine):
                 dc=request.upstream_datacenter,
                 upstream=request.upstream_name
             )
-            if tries_used > 1:
+            if not do_retry and tries_used > 1:
                 self.statsd_client.count(
                     'http.client.retries', 1,
                     upstream=request.upstream_name,
@@ -543,7 +543,6 @@ class ExternalUrlRequestor(RequestBalancer):
                          statsd_client, kafka_producer)
 
     def _get_result_or_context(self, request: HTTPRequest):
-        request.upstream_name = request.host
         request.upstream_datacenter = self.DC_FOR_EXTERNAL_REQUESTS
         return ImmediateResultOrPreparedRequest(processed_request=request)
 
@@ -582,8 +581,6 @@ class UpstreamRequestBalancer(RequestBalancer):
 
         request.host = self.state.current_host
         request.url = self.state.current_host + self.request.uri
-
-        request.upstream_name = upstream_name
         request.upstream_datacenter = self.state.current_datacenter
 
         return ImmediateResultOrPreparedRequest(processed_request=request)
