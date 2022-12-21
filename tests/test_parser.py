@@ -22,6 +22,15 @@ class TestParser(unittest.TestCase):
                                 'slow_start_interval_sec': '150',
                                 'speculative_timeout_pct': '0.5',
                                 'session_required': 'true',
+                            },
+                            'slow': {
+                                'max_tries': '6',
+                                'request_timeout_sec': '10',
+                                'connect_timeout_sec': '0.5',
+                                'max_timeout_tries': '2',
+                                'slow_start_interval_sec': '300',
+                                'speculative_timeout_pct': '0.7',
+                                'session_required': 'false',
                             }
                         }
                     }
@@ -30,13 +39,23 @@ class TestParser(unittest.TestCase):
         )}
         config = parse_consul_upstream_config(value)
 
-        self.assertEqual(config['max_tries'], '3')
-        self.assertEqual(config['request_timeout_sec'], '5')
-        self.assertEqual(config['connect_timeout_sec'], '0.2')
-        self.assertEqual(config['max_timeout_tries'], '1')
-        self.assertEqual(config['slow_start_interval_sec'], '150')
-        self.assertEqual(config['speculative_timeout_pct'], '0.5')
-        self.assertEqual(config['session_required'], 'true')
+        self.assertEqual(len(config), 2)
+
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).max_tries, 3)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).request_timeout, 5)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).connect_timeout, 0.2)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).max_timeout_tries, 1)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).slow_start_interval, 150)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).speculative_timeout_pct, 0.5)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).session_required, True)
+
+        self.assertEqual(config.get("slow").max_tries, 6)
+        self.assertEqual(config.get("slow").request_timeout, 10)
+        self.assertEqual(config.get("slow").connect_timeout, 0.5)
+        self.assertEqual(config.get("slow").max_timeout_tries, 2)
+        self.assertEqual(config.get("slow").slow_start_interval, 300)
+        self.assertEqual(config.get("slow").speculative_timeout_pct, 0.7)
+        self.assertEqual(config.get("slow").session_required, False)
 
     def test_parse_config_default_value(self):
         value = {'Value': json.dumps(
@@ -54,9 +73,10 @@ class TestParser(unittest.TestCase):
         )}
         config = parse_consul_upstream_config(value)
 
-        self.assertEqual(config['max_tries'], '3')
-        self.assertEqual(config['session_required'], options.http_client_default_session_required)
-        self.assertEqual(config['speculative_timeout_pct'], 0)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).max_tries, 3)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).session_required,
+                         options.http_client_default_session_required)
+        self.assertEqual(config.get(Upstream.DEFAULT_PROFILE).speculative_timeout_pct, 0)
 
     def test_parse_health_service(self):
         value = [
@@ -169,4 +189,5 @@ class TestParser(unittest.TestCase):
         config = parse_consul_upstream_config(value)
 
         upstream = Upstream('some_upstream', config, [])
-        self.assertEqual(upstream.retry_policy.statuses, {503: True, 599: False})
+        self.assertEqual(upstream.config_by_profile.get(Upstream.DEFAULT_PROFILE).retry_policy.statuses,
+                         {503: True, 599: False})

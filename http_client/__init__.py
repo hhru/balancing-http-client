@@ -122,7 +122,7 @@ class RequestEngine:
 
 class RequestEngineBuilder:
 
-    def build(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode, callback,
+    def build(self, request: HTTPRequest, profile, execute_request, modify_http_request_hook, debug_mode, callback,
               parse_response, parse_on_error, fail_fast) -> RequestEngine:
         pass
 
@@ -159,7 +159,7 @@ class HttpClient:
         self.modify_http_request_hook = modify_http_request_hook
         self.request_engine_builder = request_engine_builder
 
-    def get_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True,
+    def get_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
                 speculative_timeout_pct=None):
@@ -169,12 +169,12 @@ class HttpClient:
             connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects
         ).build()
 
-        request_engine = self.request_engine_builder.build(request, self.execute_request, self.modify_http_request_hook,
-                                                           self.debug_mode, callback, parse_response, parse_on_error,
-                                                           fail_fast)
+        request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
+                                                           self.modify_http_request_hook, self.debug_mode, callback,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
-    def head_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True,
+    def head_url(self, host, uri, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
                  callback=None, fail_fast=False, speculative_timeout_pct=None):
 
@@ -183,12 +183,13 @@ class HttpClient:
             connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects
         ).build()
 
-        request_engine = self.request_engine_builder.build(request, self.execute_request, self.modify_http_request_hook,
-                                                           self.debug_mode, callback, False, False, fail_fast)
+        request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
+                                                           self.modify_http_request_hook, self.debug_mode, callback,
+                                                           False, False, fail_fast)
         return request_engine.execute()
 
     def post_url(self, host, uri, *,
-                 name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True,
+                 name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
                  callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
                  speculative_timeout_pct=None):
@@ -198,13 +199,13 @@ class HttpClient:
             connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects, idempotent
         ).build()
 
-        request_engine = self.request_engine_builder.build(request, self.execute_request, self.modify_http_request_hook,
-                                                           self.debug_mode, callback, parse_response, parse_on_error,
-                                                           fail_fast)
+        request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
+                                                           self.modify_http_request_hook, self.debug_mode, callback,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def put_url(self, host, uri, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
-                connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
+                profile=None, connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
                 callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
                 speculative_timeout_pct=None):
 
@@ -213,12 +214,12 @@ class HttpClient:
             connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects, idempotent
         ).build()
 
-        request_engine = self.request_engine_builder.build(request, self.execute_request, self.modify_http_request_hook,
-                                                           self.debug_mode, callback, parse_response, parse_on_error,
-                                                           fail_fast)
+        request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
+                                                           self.modify_http_request_hook, self.debug_mode, callback,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
-    def delete_url(self, host, uri, *, name=None, data=None, headers=None, content_type=None,
+    def delete_url(self, host, uri, *, name=None, data=None, headers=None, content_type=None, profile=None,
                    connect_timeout=None, request_timeout=None, max_timeout_tries=None,
                    callback=None, parse_response=True, parse_on_error=False, fail_fast=False,
                    speculative_timeout_pct=None):
@@ -228,9 +229,9 @@ class HttpClient:
             connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct
         ).build()
 
-        request_engine = self.request_engine_builder.build(request, self.execute_request, self.modify_http_request_hook,
-                                                           self.debug_mode, callback, parse_response, parse_on_error,
-                                                           fail_fast)
+        request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
+                                                           self.modify_http_request_hook, self.debug_mode, callback,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def execute_request(self, request: HTTPRequest):

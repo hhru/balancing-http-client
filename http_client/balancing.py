@@ -101,19 +101,69 @@ class Server:
                f'current_requests={self.current_requests}, stat_requests={self.stat_requests}}}'
 
 
+class RetryPolicy:
+
+    def __init__(self, properties=None):
+        self.statuses = {}
+        if properties:
+            for status, config in properties.items():
+                self.statuses[int(status)] = config.get('idempotent', 'false') == 'true'
+        else:
+            self.statuses = options.http_client_default_retry_policy
+
+    def is_retriable(self, response, idempotent):
+        if response.code == 599:
+            error = str(response.error)
+            if error.startswith('HTTP 599: Failed to connect') or error.startswith('HTTP 599: Connection timed out') \
+                    or error.startswith('HTTP 599: Connection timeout'):
+                return True
+
+        if response.code not in self.statuses:
+            return False
+
+        return idempotent or self.statuses.get(response.code)
+
+
+class UpstreamConfig:
+
+    def __init__(self, max_tries=None,
+                 max_timeout_tries=None,
+                 connect_timeout=None,
+                 request_timeout=None,
+                 speculative_timeout_pct=None,
+                 slow_start_interval=None,
+                 retry_policy=None,
+                 session_required=None):
+        self.max_tries = int(options.http_client_default_max_tries if max_tries is None else max_tries)
+        self.max_timeout_tries = int(options.http_client_default_max_timeout_tries if max_timeout_tries is None
+                                     else max_timeout_tries)
+        self.connect_timeout = float(options.http_client_default_connect_timeout_sec if connect_timeout is None
+                                     else connect_timeout)
+        self.request_timeout = float(options.http_client_default_request_timeout_sec if request_timeout is None
+                                     else request_timeout)
+        self.speculative_timeout_pct = float(0 if speculative_timeout_pct is None else speculative_timeout_pct)
+        self.slow_start_interval = float(0 if slow_start_interval is None else slow_start_interval)
+        self.retry_policy = RetryPolicy({} if retry_policy is None else retry_policy)
+        trues = ('true', 'True', '1', True)
+        self.session_required = (options.http_client_default_session_required if session_required is None
+                                 else session_required) in trues
+
+    def __repr__(self):
+        return f'{{"max_tries":{self.max_tries}, "max_timeout_tries":{self.max_timeout_tries}, ' \
+               f'"connect_timeout":{self.connect_timeout}, "request_timeout":{self.request_timeout}, ' \
+               f'"speculative_timeout_pct":{self.speculative_timeout_pct}, ' \
+               f'"slow_start_interval":{self.slow_start_interval}, "session_required":{self.session_required}}}'
+
+
 class Upstream:
-    def __init__(self, name, config, servers):
+
+    DEFAULT_PROFILE = "default"
+
+    def __init__(self, name, config_by_profile, servers):
         self.name = name
         self.servers = []
-        self.max_tries = int(config.get('max_tries', options.http_client_default_max_tries))
-        self.max_timeout_tries = int(config.get('max_timeout_tries', options.http_client_default_max_timeout_tries))
-        self.connect_timeout = float(config.get('connect_timeout_sec', options.http_client_default_connect_timeout_sec))
-        self.request_timeout = float(config.get('request_timeout_sec', options.http_client_default_request_timeout_sec))
-        self.speculative_timeout_pct = float(config.get('speculative_timeout_pct', 0))
-        self.slow_start_interval = float(config.get('slow_start_interval_sec', 0))
-        self.retry_policy = RetryPolicy(config.get('retry_policy', {}))
-        self.session_required = config.get('session_required', options.http_client_default_session_required)
-
+        self.config_by_profile = config_by_profile if config_by_profile \
+            else {Upstream.DEFAULT_PROFILE: self.get_default_config()}
         self._update_servers(servers)
 
     def acquire_server(self, excluded_servers=None):
@@ -150,18 +200,20 @@ class Upstream:
                         server.rescale_stats_requests()
 
     def update(self, upstream):
-        servers = upstream.servers
+        self.config_by_profile = upstream.config_by_profile
+        self._update_servers(upstream.servers)
 
-        self.max_tries = upstream.max_tries
-        self.max_timeout_tries = upstream.max_timeout_tries
-        self.connect_timeout = upstream.connect_timeout
-        self.request_timeout = upstream.request_timeout
-        self.speculative_timeout_pct = upstream.speculative_timeout_pct
-        self.slow_start_interval = upstream.slow_start_interval
-        self.retry_policy = upstream.retry_policy
-        self.session_required = upstream.session_required
+    def get_config(self, profile):
+        if not profile:
+            profile = Upstream.DEFAULT_PROFILE
+        config = self.config_by_profile.get(profile)
+        if config is None:
+            raise ValueError(f'Profile {profile} should be present')
+        return config
 
-        self._update_servers(servers)
+    @staticmethod
+    def get_default_config():
+        return UpstreamConfig()
 
     def _update_servers(self, servers):
         mapping = {server.address: server for server in servers}
@@ -182,7 +234,8 @@ class Upstream:
                 self._add_server(server)
 
     def _add_server(self, server):
-        server.set_slow_start_end_time_if_needed(self.slow_start_interval)
+        slow_start_interval = self.config_by_profile.get(Upstream.DEFAULT_PROFILE).slow_start_interval
+        server.set_slow_start_end_time_if_needed(slow_start_interval)
         for index, s in enumerate(self.servers):
             if s is None:
                 self.servers[index] = server
@@ -218,29 +271,6 @@ class UpstreamManager:
         return self.upstreams.get(name)
 
 
-class RetryPolicy:
-
-    def __init__(self, properties=None):
-        self.statuses = {}
-        if properties:
-            for status, config in properties.items():
-                self.statuses[int(status)] = config.get('idempotent', 'false') == 'true'
-        else:
-            self.statuses = options.http_client_default_retry_policy
-
-    def is_retriable(self, response, idempotent):
-        if response.code == 599:
-            error = str(response.error)
-            if error.startswith('HTTP 599: Failed to connect') or error.startswith('HTTP 599: Connection timed out') \
-                    or error.startswith('HTTP 599: Connection timeout'):
-                return True
-
-        if response.code not in self.statuses:
-            return False
-
-        return idempotent or self.statuses.get(response.code)
-
-
 class BalancingStrategy:
     @staticmethod
     def get_least_loaded_server(servers, excluded_servers, current_datacenter, allow_cross_dc_requests):
@@ -274,11 +304,15 @@ class ImmediateResultOrPreparedRequest:
 
 class BalancingState:
 
-    def __init__(self, upstream: Upstream):
+    def __init__(self, upstream: Upstream, profile):
         self.upstream = upstream
+        self.profile = profile
         self.tried_servers = set()
         self.current_host = None
         self.current_datacenter = None
+
+    def get_upstream_config(self):
+        return self.upstream.get_config(self.profile)
 
     def is_server_available(self):
         return self.current_host is not None
@@ -309,8 +343,7 @@ class RequestBalancer(RequestEngine):
                  parse_response, parse_on_error, fail_fast, connect_timeout, request_timeout, max_timeout_tries,
                  max_tries, speculative_timeout_pct, session_required, statsd_client, kafka_producer):
 
-        trues = ('true', 'True', '1', True)
-        request.session_required = session_required in trues
+        request.session_required = session_required
 
         request.connect_timeout = connect_timeout if request.connect_timeout is None else request.connect_timeout
         request.request_timeout = request_timeout if request.request_timeout is None else request.request_timeout
@@ -536,10 +569,11 @@ class ExternalUrlRequestor(RequestBalancer):
 
     def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode, callback,
                  parse_response, parse_on_error, fail_fast, statsd_client=None, kafka_producer=None):
+        default_config = Upstream.get_default_config()
         super().__init__(request, execute_request, modify_http_request_hook, debug_mode, callback, parse_response,
-                         parse_on_error, fail_fast, options.http_client_default_connect_timeout_sec,
-                         options.http_client_default_request_timeout_sec, options.http_client_default_max_timeout_tries,
-                         options.http_client_default_max_tries, 0, options.http_client_default_session_required,
+                         parse_on_error, fail_fast, default_config.connect_timeout, default_config.request_timeout,
+                         default_config.max_timeout_tries, default_config.max_tries,
+                         default_config.speculative_timeout_pct, default_config.session_required,
                          statsd_client, kafka_producer)
 
     def _get_result_or_context(self, request: HTTPRequest):
@@ -565,10 +599,11 @@ class UpstreamRequestBalancer(RequestBalancer):
     def __init__(self, state: BalancingState, request: HTTPRequest, execute_request, modify_http_request_hook,
                  debug_mode, callback, parse_response, parse_on_error, fail_fast,
                  statsd_client=None, kafka_producer=None):
+        upstream_config = state.get_upstream_config()
         super().__init__(request, execute_request, modify_http_request_hook, debug_mode, callback, parse_response,
-                         parse_on_error, fail_fast, state.upstream.connect_timeout, state.upstream.request_timeout,
-                         state.upstream.max_timeout_tries, state.upstream.max_tries,
-                         state.upstream.speculative_timeout_pct, state.upstream.session_required,
+                         parse_on_error, fail_fast, upstream_config.connect_timeout, upstream_config.request_timeout,
+                         upstream_config.max_timeout_tries, upstream_config.max_tries,
+                         upstream_config.speculative_timeout_pct, upstream_config.session_required,
                          statsd_client, kafka_producer)
         self.state = state
 
@@ -590,7 +625,7 @@ class UpstreamRequestBalancer(RequestBalancer):
 
     def _check_retry(self, response, is_idempotent):
         do_retry = super()._check_retry(response, is_idempotent)
-        return do_retry and self.state.upstream.retry_policy.is_retriable(response, is_idempotent)
+        return do_retry and self.state.get_upstream_config().retry_policy.is_retriable(response, is_idempotent)
 
     def _on_retry(self):
         self.state.increment_tries()
@@ -603,7 +638,7 @@ class RequestBalancerBuilder(RequestEngineBuilder):
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
-    def build(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode, callback,
+    def build(self, request: HTTPRequest, profile, execute_request, modify_http_request_hook, debug_mode, callback,
               parse_response, parse_on_error, fail_fast) -> RequestEngine:
         upstream = self.upstream_manager.get_upstream(request.host)
         if upstream is None:
@@ -611,7 +646,7 @@ class RequestBalancerBuilder(RequestEngineBuilder):
                                         parse_response, parse_on_error, fail_fast,
                                         self.statsd_client, self.kafka_producer)
         else:
-            state = BalancingState(upstream)
+            state = BalancingState(upstream, profile)
             return UpstreamRequestBalancer(state, request, execute_request, modify_http_request_hook, debug_mode,
                                            callback, parse_response, parse_on_error, fail_fast,
                                            self.statsd_client, self.kafka_producer)

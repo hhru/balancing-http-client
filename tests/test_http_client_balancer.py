@@ -1,7 +1,7 @@
 import unittest
 
 from http_client import options
-from http_client.balancing import Upstream, Server
+from http_client.balancing import Upstream, Server, UpstreamConfig
 
 
 def _total_weight(upstream):
@@ -20,7 +20,7 @@ class TestHttpClientBalancer(unittest.TestCase):
 
     @staticmethod
     def _upstream(servers, config=None):
-        return Upstream('upstream', {} if config is None else config, servers)
+        return Upstream('upstream', config, servers)
 
     def test_create(self):
         upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 1, dc='test')])
@@ -144,19 +144,22 @@ class TestHttpClientBalancer(unittest.TestCase):
 
     def test_slow_start_on_server(self):
         servers = [Server('1', 1, dc='test'), Server('2', 1, dc='test')]
-        upstream = Upstream('upstream', {'slow_start_interval_sec': 10}, servers)
+        upstream_config = {Upstream.DEFAULT_PROFILE: UpstreamConfig(slow_start_interval=10)}
+        upstream = Upstream('upstream', upstream_config, servers)
 
         self.assertTrue(upstream.servers[0].slow_start_end_time > 0)
         self.assertTrue(upstream.servers[1].slow_start_end_time > 0)
 
     def test_session_required_true(self):
         servers = [Server('1', 1, dc='test'), Server('2', 1, dc='test')]
-        upstream = Upstream('upstream', {'session_required': 'true'}, servers)
+        upstream_config = {Upstream.DEFAULT_PROFILE: UpstreamConfig(session_required=True)}
+        upstream = Upstream('upstream', upstream_config, servers)
 
-        self.assertEqual(upstream.session_required, 'true')
+        self.assertEqual(upstream.get_config(Upstream.DEFAULT_PROFILE).session_required, True)
 
     def test_session_required_false(self):
         servers = [Server('1', 1, dc='test'), Server('2', 1, dc='test')]
-        upstream = Upstream('upstream', {}, servers)
+        upstream_config = {Upstream.DEFAULT_PROFILE: UpstreamConfig()}
+        upstream = Upstream('upstream', upstream_config, servers)
 
-        self.assertEqual(upstream.session_required, False)
+        self.assertEqual(upstream.get_config(Upstream.DEFAULT_PROFILE).session_required, False)
