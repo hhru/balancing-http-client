@@ -7,7 +7,7 @@ from http_client import RequestBuilder
 from tests.test_balancing_base import BalancingClientMixin, WorkingServerTestCase
 
 
-class BalancingTracingTest(BalancingClientMixin, WorkingServerTestCase):
+class UpstreamProfilesTest(BalancingClientMixin, WorkingServerTestCase):
 
     def setUp(self):
         super().setUp()
@@ -16,15 +16,15 @@ class BalancingTracingTest(BalancingClientMixin, WorkingServerTestCase):
     def tearDown(self):
         super().tearDown()
 
-    def create_request_balancer(self, ok_server):
+    def create_request_balancer(self, profile):
         test_request = RequestBuilder("test", "test-app", "/test", 'GET').build()
-        return self.request_balancer_builder.build(test_request, None, self.create_execute_request_callback(ok_server),
+        return self.request_balancer_builder.build(test_request, profile, self.create_execute_request_callback(),
                                                    None, False, None, False, False, False)
 
-    def create_execute_request_callback(self, ok_server):
+    def create_execute_request_callback(self):
         def execute_request(test_request: HTTPRequest):
             future = Future()
-            if test_request.host == ok_server.address:
+            if test_request.host == self.servers[2].address:
                 future.set_result(HTTPResponse(test_request, 200, request_time=1))
             else:
                 error_message = f'Failed to connect to {test_request.host}'
@@ -35,17 +35,27 @@ class BalancingTracingTest(BalancingClientMixin, WorkingServerTestCase):
         return execute_request
 
     @gen_test
-    async def test_tracing_without_retries(self):
-        request_balancer = self.create_request_balancer(self.servers[0])
+    async def test_profile_with_one_try(self):
+        request_balancer = self.create_request_balancer("one_try")
         await request_balancer.execute()
 
-        expected_trace = "127.0.0.1:8081~200~None"
+        expected_trace = "127.0.0.1:8081~599~HTTP 599: Failed to connect to 127.0.0.1:8081"
         actual_trace = request_balancer.get_trace()
         self.assertEqual(expected_trace, actual_trace)
 
     @gen_test
-    async def test_tracing_with_retries(self):
-        request_balancer = self.create_request_balancer(self.servers[2])
+    async def test_profile_with_two_tries(self):
+        request_balancer = self.create_request_balancer("two_tries")
+        await request_balancer.execute()
+
+        expected_trace = "127.0.0.1:8081~599~HTTP 599: Failed to connect to 127.0.0.1:8081 -> " \
+                         "127.0.0.1:8082~599~HTTP 599: Failed to connect to 127.0.0.1:8082"
+        actual_trace = request_balancer.get_trace()
+        self.assertEqual(expected_trace, actual_trace)
+
+    @gen_test
+    async def test_default_profile_with_three_tries(self):
+        request_balancer = self.create_request_balancer(None)
         await request_balancer.execute()
 
         expected_trace = "127.0.0.1:8081~599~HTTP 599: Failed to connect to 127.0.0.1:8081 -> " \

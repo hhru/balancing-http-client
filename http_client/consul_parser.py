@@ -3,7 +3,7 @@ import logging
 
 from http_client.util import restore_original_datacenter_name
 
-from http_client.balancing import Server
+from http_client.balancing import Server, UpstreamConfig
 
 from http_client.options import options
 
@@ -44,18 +44,15 @@ def _not_same_name(node_name: str):
 def parse_consul_upstream_config(value):
     config = {}
     values = json.loads(value['Value'])
-    default_profile = values['hosts']['default']['profiles']['default']
-    config['retry_policy'] = default_profile.get('retry_policy', {})
-    config['request_timeout_sec'] = default_profile.get('request_timeout_sec',
-                                                        options.http_client_default_request_timeout_sec)
-    config['max_timeout_tries'] = default_profile.get('max_timeout_tries',
-                                                      options.http_client_default_max_timeout_tries)
-    config['max_tries'] = default_profile.get('max_tries', options.http_client_default_max_tries)
-    config['connect_timeout_sec'] = default_profile.get('connect_timeout_sec',
-                                                        options.http_client_default_connect_timeout_sec)
-
-    config['slow_start_interval_sec'] = default_profile.get('slow_start_interval_sec', 0)
-    config['speculative_timeout_pct'] = default_profile.get('speculative_timeout_pct', 0)
-    config['session_required'] = default_profile.get('session_required', options.http_client_default_session_required)
-
+    for profile_name, profile_config in values['hosts']['default']['profiles'].items():
+        config[profile_name] = UpstreamConfig(
+            max_tries=profile_config.get('max_tries'),
+            max_timeout_tries=profile_config.get('max_timeout_tries'),
+            connect_timeout=profile_config.get('connect_timeout_sec'),
+            request_timeout=profile_config.get('request_timeout_sec'),
+            speculative_timeout_pct=profile_config.get('speculative_timeout_pct'),
+            slow_start_interval=profile_config.get('slow_start_interval_sec'),
+            retry_policy=profile_config.get('retry_policy'),
+            session_required=profile_config.get('session_required')
+        )
     return config
