@@ -12,11 +12,6 @@ from http_client import RequestEngineBuilder, RequestEngine, RequestResult, Fail
 from http_client.options import options
 from http_client.util import response_from_debug
 
-try:
-    from tornado.stack_context import wrap
-except ImportError:
-    wrap = lambda f: f
-
 
 http_client_logger = logging.getLogger('http_client')
 
@@ -339,7 +334,7 @@ class RequestBalancer(RequestEngine):
     def get_url(request):
         return f'http://{request.host}{request.uri}'
 
-    def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode, callback,
+    def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode,
                  parse_response, parse_on_error, fail_fast, connect_timeout, request_timeout, max_timeout_tries,
                  max_tries, speculative_timeout_pct, session_required, statsd_client, kafka_producer):
 
@@ -368,7 +363,6 @@ class RequestBalancer(RequestEngine):
         self.trace = OrderedDict()
 
         self.debug_mode = debug_mode
-        self.callback = callback
         self.parse_response = parse_response
         self.parse_on_error = parse_on_error
         self.fail_fast = fail_fast
@@ -384,9 +378,6 @@ class RequestBalancer(RequestEngine):
                 return
 
             result = RequestResult(self.request, response, self.parse_response, self.parse_on_error)
-
-            if callable(self.callback):
-                wrap(self.callback)(result.data, result.response)
 
             if self.fail_fast and result.failed:
                 future.set_exception(FailFastError(result))
@@ -567,10 +558,10 @@ class ExternalUrlRequestor(RequestBalancer):
     DC_FOR_EXTERNAL_REQUESTS = "externalRequest"
     DEFAULT_RETRY_POLICY = RetryPolicy()
 
-    def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode, callback,
+    def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode,
                  parse_response, parse_on_error, fail_fast, statsd_client=None, kafka_producer=None):
         default_config = Upstream.get_default_config()
-        super().__init__(request, execute_request, modify_http_request_hook, debug_mode, callback, parse_response,
+        super().__init__(request, execute_request, modify_http_request_hook, debug_mode, parse_response,
                          parse_on_error, fail_fast, default_config.connect_timeout, default_config.request_timeout,
                          default_config.max_timeout_tries, default_config.max_tries,
                          default_config.speculative_timeout_pct, default_config.session_required,
@@ -597,10 +588,10 @@ class UpstreamRequestBalancer(RequestBalancer):
         return future
 
     def __init__(self, state: BalancingState, request: HTTPRequest, execute_request, modify_http_request_hook,
-                 debug_mode, callback, parse_response, parse_on_error, fail_fast,
+                 debug_mode, parse_response, parse_on_error, fail_fast,
                  statsd_client=None, kafka_producer=None):
         upstream_config = state.get_upstream_config()
-        super().__init__(request, execute_request, modify_http_request_hook, debug_mode, callback, parse_response,
+        super().__init__(request, execute_request, modify_http_request_hook, debug_mode, parse_response,
                          parse_on_error, fail_fast, upstream_config.connect_timeout, upstream_config.request_timeout,
                          upstream_config.max_timeout_tries, upstream_config.max_tries,
                          upstream_config.speculative_timeout_pct, upstream_config.session_required,
@@ -638,15 +629,15 @@ class RequestBalancerBuilder(RequestEngineBuilder):
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
-    def build(self, request: HTTPRequest, profile, execute_request, modify_http_request_hook, debug_mode, callback,
+    def build(self, request: HTTPRequest, profile, execute_request, modify_http_request_hook, debug_mode,
               parse_response, parse_on_error, fail_fast) -> RequestEngine:
         upstream = self.upstream_manager.get_upstream(request.host)
         if upstream is None:
-            return ExternalUrlRequestor(request, execute_request, modify_http_request_hook, debug_mode, callback,
+            return ExternalUrlRequestor(request, execute_request, modify_http_request_hook, debug_mode,
                                         parse_response, parse_on_error, fail_fast,
                                         self.statsd_client, self.kafka_producer)
         else:
             state = BalancingState(upstream, profile)
             return UpstreamRequestBalancer(state, request, execute_request, modify_http_request_hook, debug_mode,
-                                           callback, parse_response, parse_on_error, fail_fast,
+                                           parse_response, parse_on_error, fail_fast,
                                            self.statsd_client, self.kafka_producer)

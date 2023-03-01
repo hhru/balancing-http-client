@@ -29,7 +29,7 @@ setup(
     ],
     python_requires='>=3.6',
     install_requires=[
-        'tornado >= 5.1',
+        'tornado == 6.2',
         'pycurl >= 7.43.0',
         'lxml >= 3.5.0',
     ],
@@ -37,7 +37,7 @@ setup(
     tests_require=[
         'pytest <= 3.8.2',
         'pycodestyle == 2.5.0',
-        'tornado >= 5.1',
+        'tornado == 6.2',
     ],
     zip_safe=False
 )

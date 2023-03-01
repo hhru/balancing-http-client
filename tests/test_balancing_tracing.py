@@ -19,7 +19,7 @@ class BalancingTracingTest(BalancingClientMixin, WorkingServerTestCase):
     def create_request_balancer(self, ok_server):
         test_request = RequestBuilder("test", "test-app", "/test", 'GET').build()
         return self.request_balancer_builder.build(test_request, None, self.create_execute_request_callback(ok_server),
-                                                   None, False, None, False, False, False)
+                                                   None, False, False, False, False)
 
     def create_execute_request_callback(self, ok_server):
         def execute_request(test_request: HTTPRequest):
