@@ -346,6 +346,10 @@ class RequestBalancer(RequestEngine):
         request.connect_timeout *= options.timeout_multiplier
         request.request_timeout *= options.timeout_multiplier
 
+        empty_headers = [k for k in request.headers if request.headers[k] is None]
+        for header in empty_headers:
+            del request.headers[header]
+
         self.request = request
         self.execute_request = execute_request
         self.modify_http_request_hook = modify_http_request_hook

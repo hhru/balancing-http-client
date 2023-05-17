@@ -23,7 +23,7 @@ class ExceptionalShutdownTest(BalancingClientMixin, WorkingServerTestCase):
         self.exceptionally_shutdown_server_socket, exceptionally_shutdown_server_port = bind_unused_port()
         exceptionally_server_thread = threading.Thread(target=exceptionally_server,
                                                        args=(self.exceptionally_shutdown_server_socket,))
-        exceptionally_server_thread.setDaemon(True)
+        exceptionally_server_thread.daemon = True
         exceptionally_server_thread.start()
         super().setUp()
         self.register_ports_for_upstream(exceptionally_shutdown_server_port, self.get_http_port())
