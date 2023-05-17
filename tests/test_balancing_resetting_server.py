@@ -28,7 +28,7 @@ class ResettingServerTest(BalancingClientMixin, WorkingServerTestCase):
     def setUp(self):
         self.resetting_server_socket, resetting_server_port = bind_unused_port()
         resetting_server_thread = threading.Thread(target=resetting_server, args=(self.resetting_server_socket,))
-        resetting_server_thread.setDaemon(True)
+        resetting_server_thread.daemon = True
         resetting_server_thread.start()
         super().setUp()
         self.register_ports_for_upstream(resetting_server_port, self.get_http_port())

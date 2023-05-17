@@ -20,7 +20,7 @@ class LowBacklogTest(BalancingClientMixin, WorkingServerTestCase):
         self.stop_event = threading.Event()
         low_backlog_server = threading.Thread(target=low_backlog_server_handler,
                                               args=(self.low_backlog_server_socket, self.stop_event))
-        low_backlog_server.setDaemon(True)
+        low_backlog_server.daemon = True
         low_backlog_server.start()
 
         super().setUp()

@@ -26,7 +26,7 @@ class GracefulShutdownTest(BalancingClientMixin, WorkingServerTestCase):
         self.gracefully_shutdown_server_socket, gracefully_shutdown_server_port = bind_unused_port()
         gracefully_server_thread = threading.Thread(target=gracefully_shutdown_server,
                                                     args=(self.gracefully_shutdown_server_socket,))
-        gracefully_server_thread.setDaemon(True)
+        gracefully_server_thread.daemon = True
         gracefully_server_thread.start()
         super().setUp()
         self.register_ports_for_upstream(gracefully_shutdown_server_port, self.get_http_port())
