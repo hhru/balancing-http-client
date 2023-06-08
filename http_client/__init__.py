@@ -7,7 +7,9 @@ import re
 from asyncio import Future
 from dataclasses import dataclass
 from functools import partial
+import asyncio
 
+import httpx
 import pycurl
 from lxml import etree
 from tornado.curl_httpclient import CurlAsyncHTTPClient
@@ -128,14 +130,14 @@ class RequestEngineBuilder:
 
 
 class HttpClientFactory:
-    def __init__(self, source_app, tornado_http_client, request_engine_builder: RequestEngineBuilder):
-        self.tornado_http_client = tornado_http_client
+    def __init__(self, source_app, http_client, request_engine_builder: RequestEngineBuilder):
+        self.http_client: httpx.AsyncClient = http_client
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
 
     def get_http_client(self, modify_http_request_hook=None, debug_mode=False):
         return HttpClient(
-            self.tornado_http_client,
+            self.http_client,
             self.source_app,
             self.request_engine_builder,
             modify_http_request_hook=modify_http_request_hook,
@@ -153,7 +155,7 @@ class HttpClient:
 
     def __init__(self, http_client_impl, source_app, request_engine_builder: RequestEngineBuilder, *,
                  modify_http_request_hook=None, debug_mode=False):
-        self.http_client_impl = http_client_impl
+        self.http_client_impl: httpx.AsyncClient = http_client_impl
         self.source_app = source_app
         self.debug_mode = debug_mode
         self.modify_http_request_hook = modify_http_request_hook
@@ -235,12 +237,18 @@ class HttpClient:
         return request_engine.execute()
 
     def execute_request(self, request: HTTPRequest):
-        if isinstance(self.http_client_impl, CurlAsyncHTTPClient):
-            request.prepare_curl_callback = partial(
-                self._prepare_curl_callback, next_callback=request.prepare_curl_callback
-            )
+        timeout = httpx.Timeout(request.request_timeout, connect=request.connect_timeout)
+        async_request = self.http_client_impl.request(
+            request.method,
+            request.url if request.url.startswith('http://') or request.url.startswith('https://') else f'http://{request.url}',
+            headers=request.headers,
+            content=request.body,
+            follow_redirects=request.follow_redirects,
+            timeout=timeout,
+        )
 
-        return self.http_client_impl.fetch(request)
+        response_task = asyncio.create_task(async_request)
+        return response_task
 
 
 class DataParseError:

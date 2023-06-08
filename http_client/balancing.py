@@ -11,6 +11,8 @@ from asyncio import Future
 from http_client import RequestEngineBuilder, RequestEngine, RequestResult, FailFastError, ResponseData
 from http_client.options import options
 from http_client.util import response_from_debug
+import httpx
+from typing import Optional
 
 
 http_client_logger = logging.getLogger('http_client')
@@ -110,7 +112,8 @@ class RetryPolicy:
         if response.code == 599:
             error = str(response.error)
             if error.startswith('HTTP 599: Failed to connect') or error.startswith('HTTP 599: Connection timed out') \
-                    or error.startswith('HTTP 599: Connection timeout'):
+                    or error.startswith('HTTP 599: Connection timeout') \
+                    or error.startswith('All connection attempts failed'):
                 return True
 
         if response.code not in self.statuses:
@@ -328,6 +331,75 @@ class BalancingState:
             self.upstream.release_server(self.current_host, len(self.tried_servers) > 0)
 
 
+class ResponseWrapper:
+    def __init__(self, response, exc, request):
+        self.response: Optional[httpx.Response] = response
+        self.exc = exc
+        self.request = request
+
+    @property
+    def request_time(self):
+        if self.response is not None:
+            return self.response.elapsed.total_seconds()
+        if isinstance(self.exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return self.request.connect_timeout
+        if isinstance(self.exc, httpx.ReadTimeout):
+            return self.request.request_timeout
+        if isinstance(self.exc, httpx.ReadError):
+            return self.request.request_timeout * 0.9
+        if isinstance(self.exc, NoAvailableServerException):
+            return 0
+        raise ValueError('Unknown request_time')
+
+    @property
+    def code(self):
+        if self.response is not None:
+            return self.response.status_code
+        if isinstance(self.exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ReadError, NoAvailableServerException)):
+            return 599
+        raise ValueError('Unknown response_code')
+
+    @property
+    def error(self):
+        if self.response is not None and self.response.status_code < 400:
+            return None
+        if self.response is not None:
+            return self.response.reason_phrase
+        if self.exc.args[0] != '':
+            return self.exc.args[0]
+
+        if isinstance(self.exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return f'HTTP 599: Failed to connect to {self.request.host}'
+        if isinstance(self.exc, (httpx.ReadTimeout, httpx.ReadError)):
+            return 'HTTP 599: Operation timed out'
+        if isinstance(self.exc, NoAvailableServerException):
+            return 'No backends available'
+        raise ValueError('Unknown response_error')
+
+    @property
+    def headers(self):
+        if self.response is not None:
+            return self.response.headers
+        else:
+            return {}
+
+    @property
+    def body(self):
+        if self.response is not None:
+            return self.response.content
+        if isinstance(self.exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ReadError, NoAvailableServerException)):
+            return ''
+        raise ValueError('Unknown response_body')
+
+    @property
+    def effective_url(self):
+        return ''
+
+    @property
+    def time_info(self):
+        return {}
+
+
 class RequestBalancer(RequestEngine):
 
     @staticmethod
@@ -388,27 +460,29 @@ class RequestBalancer(RequestEngine):
                 return
             future.set_result(result)
 
-        def retry_callback(response_future):
+        def retry_callback(response_future: Future):
             exc = response_future.exception()
             if isinstance(exc, Exception):
-                if isinstance(exc, HTTPError):
-                    response = exc.response
+                if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ReadError, NoAvailableServerException)):
+                    response = ResponseWrapper(None, exc, self.request)
                 else:
                     future.set_exception(exc)
                     return
             else:
-                response = response_future.result()
+                res = response_future.result()
+                response = ResponseWrapper(res, None, self.request)
+
+            request = self.request
 
             self._update_left_tries_and_time(response)
-            self.trace[response.request.host] = ResponseData(response.code, str(response.error))
+            self.trace[request.host] = ResponseData(response.code, str(response.error))
             self._on_request_received()
 
-            request = response.request
             tries_used = self.max_tries - self.tries_left
             retries_count = tries_used - 1
             response, debug_extra = self._unwrap_debug(request, response, retries_count)
 
-            do_retry = self._check_retry(response, self.request.idempotent)
+            do_retry = self._check_retry(response, request.idempotent)
 
             self._log_response(response, retries_count, do_retry, debug_extra)
             self._send_response_metrics(response, tries_used, do_retry)
@@ -491,7 +565,7 @@ class RequestBalancer(RequestEngine):
     def _log_response(self, response, retries_count, do_retry, debug_extra):
         size = f' {len(response.body)} bytes' if response.body is not None else ''
         is_server_error = response.code >= 500
-        request = response.request
+        request = self.request
         if do_retry:
             retry = f' on retry {retries_count}' if retries_count > 0 else ''
             log_message = f'balanced_request_response: {response.code} got {size}{retry}, will retry ' \
@@ -513,7 +587,7 @@ class RequestBalancer(RequestEngine):
             http_client_logger.info('Curl timings: %s', ' '.join(timings_info))
 
     def _send_response_metrics(self, response, tries_used, do_retry):
-        request = response.request
+        request = self.request
 
         if self.statsd_client is not None:
             self.statsd_client.stack()
@@ -580,15 +654,16 @@ class ExternalUrlRequestor(RequestBalancer):
         return do_retry and self.DEFAULT_RETRY_POLICY.is_retriable(response, is_idempotent)
 
 
+class NoAvailableServerException(Exception):
+    pass
+
+
 class UpstreamRequestBalancer(RequestBalancer):
 
     @staticmethod
     def _get_server_not_available_result(request: HTTPRequest, upstream_name):
         future = Future()
-        future.set_result(HTTPResponse(
-            request, 502, error=HTTPError(502, 'No available servers for upstream: ' + upstream_name),
-            request_time=0
-        ))
+        future.set_exception(NoAvailableServerException(f'No available servers for upstream: {upstream_name}'))
         return future
 
     def __init__(self, state: BalancingState, request: HTTPRequest, execute_request, modify_http_request_hook,
