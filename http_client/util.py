@@ -53,10 +53,11 @@ def choose_boundary():
     Our embarassingly-simple replacement for mimetools.choose_boundary.
     See https://github.com/kennethreitz/requests/blob/master/requests/packages/urllib3/filepost.py
     """
-    return utf8(uuid4().hex)
+    return uuid4().hex
 
 
-BOUNDARY = choose_boundary()
+BOUNDARY_ = choose_boundary()
+BOUNDARY = utf8(BOUNDARY_)
 
 
 def make_mfd(fields, files):
@@ -117,7 +118,7 @@ def make_mfd(fields, files):
             ))
 
     body.extend([b'--', BOUNDARY, b'--\r\n'])
-    content_type = b'multipart/form-data; boundary=' + BOUNDARY
+    content_type = 'multipart/form-data; boundary=' + BOUNDARY_
 
     return b''.join(body), content_type
 

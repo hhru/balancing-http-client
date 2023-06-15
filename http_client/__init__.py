@@ -7,7 +7,10 @@ import re
 from asyncio import Future
 from dataclasses import dataclass
 from functools import partial
+import asyncio
 
+import aiohttp
+import aiohttp.client_reqrep
 import pycurl
 from lxml import etree
 from tornado.curl_httpclient import CurlAsyncHTTPClient
@@ -128,14 +131,14 @@ class RequestEngineBuilder:
 
 
 class HttpClientFactory:
-    def __init__(self, source_app, tornado_http_client, request_engine_builder: RequestEngineBuilder):
-        self.tornado_http_client = tornado_http_client
+    def __init__(self, source_app, http_client, request_engine_builder: RequestEngineBuilder):
+        self.http_client: aiohttp.ClientSession = http_client
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
 
     def get_http_client(self, modify_http_request_hook=None, debug_mode=False):
         return HttpClient(
-            self.tornado_http_client,
+            self.http_client,
             self.source_app,
             self.request_engine_builder,
             modify_http_request_hook=modify_http_request_hook,
@@ -153,7 +156,7 @@ class HttpClient:
 
     def __init__(self, http_client_impl, source_app, request_engine_builder: RequestEngineBuilder, *,
                  modify_http_request_hook=None, debug_mode=False):
-        self.http_client_impl = http_client_impl
+        self.http_client_impl: aiohttp.ClientSession = http_client_impl
         self.source_app = source_app
         self.debug_mode = debug_mode
         self.modify_http_request_hook = modify_http_request_hook
@@ -235,12 +238,23 @@ class HttpClient:
         return request_engine.execute()
 
     def execute_request(self, request: HTTPRequest):
-        if isinstance(self.http_client_impl, CurlAsyncHTTPClient):
-            request.prepare_curl_callback = partial(
-                self._prepare_curl_callback, next_callback=request.prepare_curl_callback
-            )
 
-        return self.http_client_impl.fetch(request)
+        async def req_wrapper():
+            timeout = aiohttp.ClientTimeout(total=request.request_timeout, connect=request.connect_timeout)
+            async_request = self.http_client_impl.request(
+                method=request.method,
+                url=request.url if request.url.startswith('http://') or request.url.startswith('https://') else f'http://{request.url}',
+                headers=request.headers,
+                data=request.body,
+                allow_redirects=request.follow_redirects,
+                timeout=timeout,
+            )
+            response = await async_request
+            response.my_data = await response.read()
+            return response
+
+        response_task = asyncio.create_task(req_wrapper())
+        return response_task
 
 
 class DataParseError:
@@ -298,6 +312,8 @@ class RequestResult:
 
     @property
     def data(self):
+        if self._data is not None:
+            return self._data
         self._parse_data()
         return self._data
 

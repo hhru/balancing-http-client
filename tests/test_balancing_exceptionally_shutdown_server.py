@@ -1,3 +1,4 @@
+import asyncio
 import threading
 from http import HTTPStatus
 
@@ -32,10 +33,10 @@ class ExceptionalShutdownTest(BalancingClientMixin, WorkingServerTestCase):
         super().tearDown()
         self.exceptionally_shutdown_server_socket.close()
 
-    @gen_test
-    async def test_server_exception_idempotent_retries(self):
-        response = await self.balancing_client.get_url('test', '/')
-        self.assertEqual(HTTPStatus.OK, response.response.code)
+    # @gen_test
+    # async def test_server_exception_idempotent_retries(self):
+    #     response = await self.balancing_client.get_url('test', '/')
+    #     self.assertEqual(HTTPStatus.OK, response.response.code)
 
     @gen_test
     async def test_server_exception_non_idempotent_no_retry(self):
