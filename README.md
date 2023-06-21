@@ -1,29 +1,22 @@
-Balancing http client for tornado
+Balancing http client around aiohttp
 
 usage example:
 
-```
-@gen.coroutine
-def runner():
-    http_client_factory = HttpClientFactory('app-name', AsyncHTTPClient(), {
-        'backend1': {
-            'config': {
-                'request_timeout_sec': 0.5
-            },
-            'servers': [
-                {'server': 'http://127.0.0.1:8080'},
-                {'server': 'http://127.0.0.2:8080'}
-            ],
-        }
-    })
+```py
+async def runner():
+    servers = [Server('127.0.0.1:9400', 10), Server('127.0.0.1:9401', 20)]
+    upstreams = [Upstream('backend1', {}, servers)]
+    upstream_manager = UpstreamManager(upstreams)
+    request_balancer_builder = RequestBalancerBuilder(upstream_manager)
+    http_client_factory = HttpClientFactory('app-name', request_balancer_builder)
 
     http_client = http_client_factory.get_http_client()
 
-    result = yield http_client.get_url('backend1', '/some-url')
+    result = await http_client.get_url('backend1', '/some_page')
 
     if not result.failed:
         print(result.data)
 
 
-IOLoop.current().run_sync(runner)
+await runner()
 ```

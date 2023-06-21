@@ -1,9 +1,9 @@
 import threading
 from http import HTTPStatus
 
-from tornado.testing import gen_test, bind_unused_port
-
-from tests.test_balancing_base import BalancingClientMixin, WorkingServerTestCase
+from tests.test_balancing_base import BalancingClientMixin, TestBase
+from pytest_httpserver import HTTPServer
+import pytest
 
 
 def gracefully_shutdown_server(sock):
@@ -20,27 +20,24 @@ def gracefully_shutdown_server(sock):
                 client_sock.close()
 
 
-class GracefulShutdownTest(BalancingClientMixin, WorkingServerTestCase):
-
-    def setUp(self):
-        self.gracefully_shutdown_server_socket, gracefully_shutdown_server_port = bind_unused_port()
+class TestGracefulShutdown(TestBase, BalancingClientMixin):
+    @pytest.fixture(scope="function", autouse=True)
+    def setup_method(self, working_server: HTTPServer):
+        self.gracefully_shutdown_server_socket, gracefully_shutdown_server_port = self.bind_unused_port()
         gracefully_server_thread = threading.Thread(target=gracefully_shutdown_server,
                                                     args=(self.gracefully_shutdown_server_socket,))
         gracefully_server_thread.daemon = True
         gracefully_server_thread.start()
-        super().setUp()
-        self.register_ports_for_upstream(gracefully_shutdown_server_port, self.get_http_port())
+        super().setup_method(working_server)
+        self.register_ports_for_upstream(gracefully_shutdown_server_port, working_server.port)
 
-    def tearDown(self):
-        super().tearDown()
+    def teardown_method(self):
         self.gracefully_shutdown_server_socket.close()
 
-    @gen_test
     async def test_server_close_socket_idempotent_retries(self):
-        response = await self.balancing_client.get_url('test', '/')
-        self.assertEqual(HTTPStatus.OK, response.response.code)
+        result = await self.balancing_client.get_url('test', '/')
+        assert result.status_code == HTTPStatus.OK
 
-    @gen_test
     async def test_server_close_socket_non_idempotent_no_retry(self):
-        response = await self.balancing_client.post_url('test', '/')
-        self.assertEqual(599, response.response.code)
+        result = await self.balancing_client.post_url('test', '/')
+        assert result.exc is not None
