@@ -1,46 +1,27 @@
-from tornado.testing import AsyncHTTPTestCase, gen_test
-from tornado.web import RequestHandler, Application
-from tornado import gen
+import pytest
 
-from tests.test_balancing_base import BalancingClientMixin
-
-
-class CoroutineHandler(RequestHandler):
-    @gen.coroutine
-    def get(self):
-        post_result = yield self.application.balancing_client.post_url('test', '/coroutine')
-        delete_result = yield self.application.balancing_client.delete_url('test', '/coroutine', parse_on_error=True)
-        self.write(f'{post_result.data} {delete_result.data}')
-
-    @gen.coroutine
-    def post(self):
-        self.set_header('content-type', 'text/plain')
-        self.write(b'success')
-
-    @gen.coroutine
-    def delete(self):
-        self.set_header('content-type', 'text/plain')
-        self.set_status(500)
-        self.write(b'success')
+from pytest_httpserver import HTTPServer
+from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
-class BalancingInApplicationTest(BalancingClientMixin, AsyncHTTPTestCase):
+class TestBalancingInApplication(TestBase, BalancingClientMixin):
+    @pytest.fixture(scope="function", autouse=True)
+    def setup_method(self, working_server: HTTPServer):
+        super().setup_method(working_server)
 
-    def setUp(self):
-        super().setUp()
+        working_server.expect_request('/content', method='POST').respond_with_data(
+            'post_success', status=200, headers={'content-type': 'text/plain'})
+        working_server.expect_request('/content', method='DELETE').respond_with_data(
+            'delete_success', status=500, headers={'content-type': 'text/plain'})
 
-        self.application.balancing_client = self.balancing_client
-        self.register_ports_for_upstream(self.get_http_port())
+        self.port = working_server.port
+        self.register_ports_for_upstream(working_server.port)
 
-    def get_app(self):
-        self.application = Application([
-            (r'/coroutine', CoroutineHandler),
-        ])
+    async def test_parse_content(self):
+        post_result = await self.balancing_client.post_url('test', '/content')
+        assert post_result.status_code == 200
+        assert post_result.data == 'post_success'
 
-        return self.application
-
-    @gen_test
-    async def test_coroutines(self):
-        response = await self.http_client.fetch(f'http://127.0.0.1:{self.get_http_port()}/coroutine')
-        self.assertEqual(200, response.code)
-        self.assertEqual(b'success success', response.body)
+        delete_result = await self.balancing_client.delete_url('test', '/content', parse_on_error=True)
+        assert delete_result.status_code == 500
+        assert delete_result.data == 'delete_success'

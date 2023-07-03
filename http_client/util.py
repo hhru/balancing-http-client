@@ -1,14 +1,20 @@
-import base64
 import mimetypes
 from urllib.parse import urlencode
 from uuid import uuid4
-from io import BytesIO
 
-from lxml import etree
 from http_client.options import options
-from tornado.escape import to_unicode, utf8
-from tornado.httpclient import HTTPResponse
-from tornado.httputil import HTTPHeaders
+
+
+def to_unicode(value: bytes) -> str:
+    if not isinstance(value, bytes):
+        raise TypeError(f'Expected bytes; got {type(value)}')
+    return value.decode('utf-8')
+
+
+def utf8(value: str) -> bytes:
+    if not isinstance(value, str):
+        raise TypeError('Expected unicode str; got {type(value)}')
+    return value.encode('utf-8')
 
 
 def any_to_unicode(s):
@@ -27,15 +33,19 @@ def any_to_bytes(s):
     return utf8(str(s))
 
 
-def make_qs(query_args):
+def make_qs(query_args) -> str:
     return urlencode([(k, v) for k, v in query_args.items() if v is not None], doseq=True)
 
 
-def make_body(data):
-    return make_qs(data) if isinstance(data, dict) else any_to_bytes(data)
+def make_qs_bytes(query_args) -> bytes:
+    return make_qs(query_args).encode('ascii')
 
 
-def make_url(base, **query_args):
+def make_body(data) -> bytes:
+    return make_qs_bytes(data) if isinstance(data, dict) else any_to_bytes(data)
+
+
+def make_url(base: str, **query_args) -> str:
     """
     Builds URL from base part and query arguments passed as kwargs.
     Returns unicode string
@@ -43,9 +53,9 @@ def make_url(base, **query_args):
     qs = make_qs(query_args)
 
     if qs:
-        return to_unicode(base) + ('&' if '?' in base else '?') + qs
+        return f"{base}{'&' if '?' in base else '?'}{qs}"
     else:
-        return to_unicode(base)
+        return base
 
 
 def choose_boundary():
@@ -53,10 +63,11 @@ def choose_boundary():
     Our embarassingly-simple replacement for mimetools.choose_boundary.
     See https://github.com/kennethreitz/requests/blob/master/requests/packages/urllib3/filepost.py
     """
-    return utf8(uuid4().hex)
+    return uuid4().hex
 
 
-BOUNDARY = choose_boundary()
+BOUNDARY_ = choose_boundary()
+BOUNDARY = utf8(BOUNDARY_)
 
 
 def make_mfd(fields, files):
@@ -117,39 +128,9 @@ def make_mfd(fields, files):
             ))
 
     body.extend([b'--', BOUNDARY, b'--\r\n'])
-    content_type = b'multipart/form-data; boundary=' + BOUNDARY
+    content_type = 'multipart/form-data; boundary=' + BOUNDARY_
 
     return b''.join(body), content_type
-
-
-def response_from_debug(request, response):
-    debug_response = etree.XML(response.body)
-    original_response = debug_response.find('original-response')
-
-    if original_response is not None:
-        response_info = xml_to_dict(original_response)
-        original_response.getparent().remove(original_response)
-
-        original_buffer = base64.b64decode(response_info.get('buffer', ''))
-
-        headers = dict(response.headers)
-        response_info_headers = response_info.get('headers', {})
-        if response_info_headers:
-            headers.update(response_info_headers)
-
-        fake_response = HTTPResponse(
-            request,
-            int(response_info.get('code', 599)),
-            headers=HTTPHeaders(headers),
-            buffer=BytesIO(original_buffer),
-            effective_url=response.effective_url,
-            request_time=response.request_time,
-            time_info=response.time_info
-        )
-
-        return debug_response, fake_response
-
-    return None
 
 
 def xml_to_dict(xml):

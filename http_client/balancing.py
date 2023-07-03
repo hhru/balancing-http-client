@@ -1,17 +1,20 @@
 import asyncio
 import logging
 import time
-
+from asyncio import Future
 from collections import OrderedDict
 from random import random, shuffle
-from tornado.ioloop import IOLoop
-from tornado.httpclient import HTTPRequest, HTTPResponse, HTTPError
-from tornado.escape import utf8
-from asyncio import Future
-from http_client import RequestEngineBuilder, RequestEngine, RequestResult, FailFastError, ResponseData
-from http_client.options import options
-from http_client.util import response_from_debug
 
+import aiohttp
+from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
+
+from http_client import (RequestBuilder, RequestEngine, RequestEngineBuilder,
+                         RequestResult)
+from http_client.options import options
+from http_client.request_response import (FailFastError,
+                                          NoAvailableServerException,
+                                          ResponseData)
+from http_client.util import utf8
 
 http_client_logger = logging.getLogger('http_client')
 
@@ -106,17 +109,17 @@ class RetryPolicy:
         else:
             self.statuses = options.http_client_default_retry_policy
 
-    def is_retriable(self, response, idempotent):
-        if response.code == 599:
-            error = str(response.error)
-            if error.startswith('HTTP 599: Failed to connect') or error.startswith('HTTP 599: Connection timed out') \
-                    or error.startswith('HTTP 599: Connection timeout'):
-                return True
+    def is_retriable(self, result: RequestResult, idempotent):
+        if isinstance(result.exc, (ClientConnectorError, ServerTimeoutError)):
+            return True
 
-        if response.code not in self.statuses:
+        if result.exc is not None and idempotent:
+            return True
+
+        if result.status_code not in self.statuses:
             return False
 
-        return idempotent or self.statuses.get(response.code)
+        return idempotent or self.statuses.get(result.status_code)
 
 
 class UpstreamConfig:
@@ -244,7 +247,12 @@ class Upstream:
 
 class UpstreamManager:
     def __init__(self, upstreams=None):
-        self.upstreams = {} if upstreams is None else upstreams
+        if isinstance(upstreams, dict):
+            self.upstreams = upstreams
+        elif isinstance(upstreams, list):
+            self.upstreams = {upstream.name: upstream for upstream in upstreams}
+        else:
+            self.upstreams = {}
 
     def update_upstreams(self, upstreams):
         for upstream in upstreams:
@@ -292,7 +300,7 @@ class BalancingStrategy:
 
 
 class ImmediateResultOrPreparedRequest:
-    def __init__(self, processed_request: HTTPRequest = None, result: 'Future[RequestResult]' = None):
+    def __init__(self, processed_request: RequestBuilder = None, result: RequestResult = None):
         self.result = result
         self.processed_request = processed_request
 
@@ -329,12 +337,7 @@ class BalancingState:
 
 
 class RequestBalancer(RequestEngine):
-
-    @staticmethod
-    def get_url(request):
-        return f'http://{request.host}{request.uri}'
-
-    def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode,
+    def __init__(self, request: RequestBuilder, execute_request, modify_http_request_hook, debug_mode,
                  parse_response, parse_on_error, fail_fast, connect_timeout, request_timeout, max_timeout_tries,
                  max_tries, speculative_timeout_pct, session_required, statsd_client, kafka_producer):
 
@@ -342,13 +345,9 @@ class RequestBalancer(RequestEngine):
 
         request.connect_timeout = connect_timeout if request.connect_timeout is None else request.connect_timeout
         request.request_timeout = request_timeout if request.request_timeout is None else request.request_timeout
-
         request.connect_timeout *= options.timeout_multiplier
         request.request_timeout *= options.timeout_multiplier
-
-        empty_headers = [k for k in request.headers if request.headers[k] is None]
-        for header in empty_headers:
-            del request.headers[header]
+        request.timeout = aiohttp.ClientTimeout(total=request.request_timeout, connect=request.connect_timeout)
 
         self.request = request
         self.execute_request = execute_request
@@ -374,87 +373,69 @@ class RequestBalancer(RequestEngine):
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
-    def execute(self) -> 'Future[RequestResult]':
-        future = Future()
+    async def speculative_retry(self):
+        await asyncio.sleep(self.speculative_timeout)
 
-        def request_finished_callback(response):
-            if future.done():
-                return
+        if self._check_speculative_retry():
+            return await self._retryable_fetch()
 
-            result = RequestResult(self.request, response, self.parse_response, self.parse_on_error)
-
-            if self.fail_fast and result.failed:
-                future.set_exception(FailFastError(result))
-                return
-            future.set_result(result)
-
-        def retry_callback(response_future):
-            exc = response_future.exception()
-            if isinstance(exc, Exception):
-                if isinstance(exc, HTTPError):
-                    response = exc.response
-                else:
-                    future.set_exception(exc)
-                    return
-            else:
-                response = response_future.result()
-
-            self._update_left_tries_and_time(response)
-            self.trace[response.request.host] = ResponseData(response.code, str(response.error))
-            self._on_request_received()
-
-            request = response.request
-            tries_used = self.max_tries - self.tries_left
-            retries_count = tries_used - 1
-            response, debug_extra = self._unwrap_debug(request, response, retries_count)
-
-            do_retry = self._check_retry(response, self.request.idempotent)
-
-            self._log_response(response, retries_count, do_retry, debug_extra)
-            self._send_response_metrics(response, tries_used, do_retry)
-
-            if do_retry:
-                self._on_retry()
-                IOLoop.current().add_future(self._fetch(), retry_callback)
-                return
-
-            request_finished_callback(response)
-
-        def speculative_retry():
-            if future.done():
-                return
-            do_retry = self._check_speculative_retry()
-            if do_retry:
-                IOLoop.current().add_future(self._fetch(), retry_callback)
-                return
-
+    def execute(self) -> Future[RequestResult]:
         if callable(self.modify_http_request_hook):
             self.modify_http_request_hook(self.request)
 
-        IOLoop.current().add_future(self._fetch(), retry_callback)
-        if self._enable_speculative_retry():
-            IOLoop.current().call_later(self.speculative_timeout, speculative_retry)
+        request_task = asyncio.create_task(self._retryable_fetch())
+        if not self._enable_speculative_retry():
+            return request_task
 
-        return future
+        speculative_request_task = asyncio.create_task(self.speculative_retry())
+        result_task = asyncio.create_task(speculative_requests(request_task, speculative_request_task))
+        return result_task
 
-    def _get_result_or_context(self, request: HTTPRequest) -> ImmediateResultOrPreparedRequest:
+    async def _retryable_fetch(self) -> RequestResult:
+        result_or_request = self._get_result_or_context(self.request)  # modify self.request
+        if result_or_request.result is not None:
+            result = result_or_request.result
+        else:
+            result: RequestResult = await self.execute_request(result_or_request.processed_request)
+
+        result.parse_response = self.parse_response
+        result.parse_on_error = self.parse_on_error
+
+        self._update_left_tries_and_time(result.elapsed_time)
+        self.trace[self.request.host] = ResponseData(result.status_code, result.error)
+        self._on_response_received()
+
+        tries_used = self.max_tries - self.tries_left
+        retries_count = tries_used - 1
+        result, debug_extra = self._unwrap_debug(self.request, result, retries_count)
+
+        do_retry = self._check_retry(result, self.request.idempotent)
+
+        self._log_response(result, retries_count, do_retry, debug_extra)
+        self._send_response_metrics(result, tries_used, do_retry)
+
+        if do_retry:
+            self._on_retry()
+            result = await self._retryable_fetch()
+
+        if self.fail_fast and result.failed:
+            raise FailFastError(result)
+
+        return result
+
+    def _get_result_or_context(self, request: RequestBuilder) -> ImmediateResultOrPreparedRequest:
+        raise NotImplementedError
+
+    def _on_response_received(self):
         pass
 
-    def _on_request_received(self):
-        pass
-
-    def _fetch(self):
-        result_or_context = self._get_result_or_context(self.request)
-        return self.execute_request(result_or_context.processed_request) if result_or_context.result is None \
-            else result_or_context.result
-
-    def _update_left_tries_and_time(self, response):
-        self.request.request_time_left = self.request.request_time_left - response.request_time \
-            if self.request.request_time_left >= response.request_time else 0
+    def _update_left_tries_and_time(self, elapsed_time: float):
+        self.request.request_time_left = self.request.request_time_left - elapsed_time \
+            if self.request.request_time_left >= elapsed_time else 0
         if self.tries_left > 0:
             self.tries_left -= 1
 
-    def _check_retry(self, response, is_idempotent):
+    def _check_retry(self, response: RequestResult, is_idempotent):
         return self.tries_left > 0 and self.request.request_time_left > 0
 
     def _on_retry(self):
@@ -466,54 +447,51 @@ class RequestBalancer(RequestEngine):
     def _check_speculative_retry(self):
         return self.request.idempotent and self.tries_left > 0
 
-    def _unwrap_debug(self, request, response, retries_count):
+    def _unwrap_debug(self, request, result: RequestResult, retries_count):
         debug_extra = {}
 
         try:
-            if response.headers.get('X-Hh-Debug'):
-                debug_response = response_from_debug(request, response)
+            if result.headers.get('X-Hh-Debug'):
+                debug_response = result.response_from_debug()
                 if debug_response is not None:
-                    debug_xml, response = debug_response
+                    debug_xml, result = debug_response
                     debug_extra['_debug_response'] = debug_xml
 
             if self.debug_mode:
                 debug_extra.update({
-                    '_response': response,
+                    '_response': result,
                     '_request': request,
                     '_request_retry': retries_count,
-                    '_datacenter': response.request.upstream_datacenter,
+                    '_datacenter': result.request.upstream_datacenter,
                 })
         except Exception:
             http_client_logger.exception('Cannot get response from debug')
 
-        return response, debug_extra
+        return result, debug_extra
 
-    def _log_response(self, response, retries_count, do_retry, debug_extra):
-        size = f' {len(response.body)} bytes' if response.body is not None else ''
-        is_server_error = response.code >= 500
-        request = response.request
+    def _log_response(self, result: RequestResult, retries_count, do_retry, debug_extra):
+        body_bytes = result.get_body_length()
+        size = f' {body_bytes} bytes' if body_bytes is not None else ''
+        is_server_error = result.exc is not None or result.status_code >= 500
+        request = self.request
         if do_retry:
+            effective_url = request.url if result.exc is not None else result._response.real_url
             retry = f' on retry {retries_count}' if retries_count > 0 else ''
-            log_message = f'balanced_request_response: {response.code} got {size}{retry}, will retry ' \
-                          f'{request.method} {response.effective_url} in {response.request_time * 1000:.2f}ms'
+            log_message = f'balanced_request_response: {result.status_code} got {size}{retry}, will retry ' \
+                          f'{request.method} {effective_url} in {result.elapsed_time * 1000:.2f}ms'
             log_method = http_client_logger.info if is_server_error else http_client_logger.debug
         else:
             msg_label = 'balanced_request_final_error' if is_server_error else 'balanced_request_final_response'
-            log_message = f'{msg_label}: {response.code} got {size} ' \
+            log_message = f'{msg_label}: {result.status_code} got {size} ' \
                           f'{request.method} ' \
-                          f'{self.get_url(request)}, ' \
+                          f'{request.url}, ' \
                           f'trace: {self.get_trace()}'
 
             log_method = http_client_logger.warning if is_server_error else http_client_logger.info
-
         log_method(log_message, extra=debug_extra)
 
-        if response.code == 599:
-            timings_info = (f'{stage}={timing * 1000:.3f}ms' for stage, timing in response.time_info.items())
-            http_client_logger.info('Curl timings: %s', ' '.join(timings_info))
-
-    def _send_response_metrics(self, response, tries_used, do_retry):
-        request = response.request
+    def _send_response_metrics(self, result, tries_used, do_retry):
+        request = self.request
 
         if self.statsd_client is not None:
             self.statsd_client.stack()
@@ -522,11 +500,11 @@ class RequestBalancer(RequestEngine):
                 upstream=request.upstream_name,
                 dc=request.upstream_datacenter,
                 final='false' if do_retry else 'true',
-                status=response.code
+                status=result.status_code
             )
             self.statsd_client.time(
                 'http.client.request.time',
-                int(response.request_time * 1000),
+                int(result.elapsed_time * 1000),
                 dc=request.upstream_datacenter,
                 upstream=request.upstream_name
             )
@@ -537,20 +515,21 @@ class RequestBalancer(RequestEngine):
                     dc=request.upstream_datacenter,
                     first_status=next(iter(self.trace.values())).responseCode,
                     tries=tries_used,
-                    status=response.code
+                    status=result.status_code
                 )
             self.statsd_client.flush()
 
         if self.kafka_producer is not None and not do_retry:
             dc = request.upstream_datacenter or options.datacenter or 'unknown'
             current_host = request.host or 'unknown'
-            request_id = request.headers.get('X-Request-Id', 'unknown')
+            request_id = result.headers.get('X-Request-Id', 'unknown')
+            status_code = result.status_code or 'null'
             upstream = request.upstream_name or 'unknown'
 
             asyncio.get_event_loop().create_task(self.kafka_producer.send(
                 'metrics_requests',
                 utf8(f'{{"app":"{options.app}","dc":"{dc}","hostname":"{current_host}","requestId":"{request_id}",'
-                     f'"status":{response.code},"ts":{int(time.time())},"upstream":"{upstream}"}}')
+                     f'"status":{status_code},"ts":{int(time.time())},"upstream":"{upstream}"}}')
             ))
 
     def get_trace(self):
@@ -562,7 +541,7 @@ class ExternalUrlRequestor(RequestBalancer):
     DC_FOR_EXTERNAL_REQUESTS = "externalRequest"
     DEFAULT_RETRY_POLICY = RetryPolicy()
 
-    def __init__(self, request: HTTPRequest, execute_request, modify_http_request_hook, debug_mode,
+    def __init__(self, request: RequestBuilder, execute_request, modify_http_request_hook, debug_mode,
                  parse_response, parse_on_error, fail_fast, statsd_client=None, kafka_producer=None):
         default_config = Upstream.get_default_config()
         super().__init__(request, execute_request, modify_http_request_hook, debug_mode, parse_response,
@@ -571,11 +550,11 @@ class ExternalUrlRequestor(RequestBalancer):
                          default_config.speculative_timeout_pct, default_config.session_required,
                          statsd_client, kafka_producer)
 
-    def _get_result_or_context(self, request: HTTPRequest):
+    def _get_result_or_context(self, request: RequestBuilder):
         request.upstream_datacenter = self.DC_FOR_EXTERNAL_REQUESTS
         return ImmediateResultOrPreparedRequest(processed_request=request)
 
-    def _check_retry(self, response, is_idempotent):
+    def _check_retry(self, response: RequestResult, is_idempotent):
         do_retry = super()._check_retry(response, is_idempotent)
         return do_retry and self.DEFAULT_RETRY_POLICY.is_retriable(response, is_idempotent)
 
@@ -583,15 +562,11 @@ class ExternalUrlRequestor(RequestBalancer):
 class UpstreamRequestBalancer(RequestBalancer):
 
     @staticmethod
-    def _get_server_not_available_result(request: HTTPRequest, upstream_name):
-        future = Future()
-        future.set_result(HTTPResponse(
-            request, 502, error=HTTPError(502, 'No available servers for upstream: ' + upstream_name),
-            request_time=0
-        ))
-        return future
+    def _get_server_not_available_result(request: RequestBuilder, upstream_name) -> RequestResult:
+        exc = NoAvailableServerException(f'No available servers for upstream: {upstream_name}')
+        return RequestResult(request, exc=exc, elapsed_time=0)
 
-    def __init__(self, state: BalancingState, request: HTTPRequest, execute_request, modify_http_request_hook,
+    def __init__(self, state: BalancingState, request: RequestBuilder, execute_request, modify_http_request_hook,
                  debug_mode, parse_response, parse_on_error, fail_fast,
                  statsd_client=None, kafka_producer=None):
         upstream_config = state.get_upstream_config()
@@ -602,7 +577,7 @@ class UpstreamRequestBalancer(RequestBalancer):
                          statsd_client, kafka_producer)
         self.state = state
 
-    def _get_result_or_context(self, request: HTTPRequest):
+    def _get_result_or_context(self, request: RequestBuilder):
         upstream_name = self.state.upstream.name
         self.state.acquire_server()
         if not self.state.is_server_available():
@@ -610,15 +585,15 @@ class UpstreamRequestBalancer(RequestBalancer):
             return ImmediateResultOrPreparedRequest(result=result)
 
         request.host = self.state.current_host
-        request.url = self.state.current_host + self.request.uri
+        request.url = f'http://{self.state.current_host}{self.request.path}'
         request.upstream_datacenter = self.state.current_datacenter
 
         return ImmediateResultOrPreparedRequest(processed_request=request)
 
-    def _on_request_received(self):
+    def _on_response_received(self):
         self.state.release_server()
 
-    def _check_retry(self, response, is_idempotent):
+    def _check_retry(self, response: RequestResult, is_idempotent):
         do_retry = super()._check_retry(response, is_idempotent)
         return do_retry and self.state.get_upstream_config().retry_policy.is_retriable(response, is_idempotent)
 
@@ -633,7 +608,7 @@ class RequestBalancerBuilder(RequestEngineBuilder):
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
-    def build(self, request: HTTPRequest, profile, execute_request, modify_http_request_hook, debug_mode,
+    def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_mode,
               parse_response, parse_on_error, fail_fast) -> RequestEngine:
         upstream = self.upstream_manager.get_upstream(request.host)
         if upstream is None:
@@ -645,3 +620,24 @@ class RequestBalancerBuilder(RequestEngineBuilder):
             return UpstreamRequestBalancer(state, request, execute_request, modify_http_request_hook, debug_mode,
                                            parse_response, parse_on_error, fail_fast,
                                            self.statsd_client, self.kafka_producer)
+
+
+async def speculative_requests(request: asyncio.Task, speculative_request: asyncio.Task) -> RequestResult:
+    done, pending = await asyncio.wait([request, speculative_request], return_when=asyncio.FIRST_COMPLETED)
+
+    if request in done and not request.result().failed:
+        speculative_request.cancel()
+        return request.result()
+
+    if speculative_request in done and speculative_request.result() is not None and \
+            not speculative_request.result().failed:
+        request.cancel()
+        return speculative_request.result()
+
+    for task in pending:
+        await task
+
+    if not request.result().failed or speculative_request.result() is None or speculative_request.result().failed:
+        return request.result()
+
+    return speculative_request.result()

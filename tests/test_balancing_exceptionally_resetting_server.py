@@ -1,6 +1,6 @@
-
+import socket
+import struct
 import threading
-import time
 from http import HTTPStatus
 
 import pytest
@@ -9,14 +9,14 @@ from pytest_httpserver import HTTPServer
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
-def resetting_server(sock):
+def exceptionally_resetting_server(sock):
     sock.listen(10)
     client_sock = None
     while True:
         try:
             client_sock, client_addr = sock.accept()
-            time.sleep(0.1)
-            client_sock.recv(1024)  # got whole request
+            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            client_sock.recv(4)
         except (BlockingIOError, OSError):
             pass
         finally:
@@ -24,11 +24,13 @@ def resetting_server(sock):
                 client_sock.close()
 
 
-class TestResettingServer(TestBase, BalancingClientMixin):
+class TestExceptionalResettingServer(TestBase, BalancingClientMixin):
     @pytest.fixture(scope="function", autouse=True)
     def setup_method(self, working_server: HTTPServer):
         self.resetting_server_socket, resetting_server_port = self.bind_unused_port()
-        resetting_server_thread = threading.Thread(target=resetting_server, args=(self.resetting_server_socket,))
+        self.resetting_server_port = resetting_server_port
+        resetting_server_thread = threading.Thread(target=exceptionally_resetting_server,
+                                                   args=(self.resetting_server_socket,))
         resetting_server_thread.daemon = True
         resetting_server_thread.start()
         super().setup_method(working_server)
@@ -42,5 +44,5 @@ class TestResettingServer(TestBase, BalancingClientMixin):
         assert result.status_code == HTTPStatus.OK
 
     async def test_server_reset_non_idempotent_no_retry(self):
-        result = await self.balancing_client.post_url('test', '/')
+        result = await self.balancing_client.post_url(f'0.0.0.0:{self.resetting_server_port}', '/')
         assert result.exc is not None

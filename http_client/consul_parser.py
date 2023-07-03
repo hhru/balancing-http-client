@@ -1,12 +1,9 @@
 import json
 import logging
 
-from http_client.util import restore_original_datacenter_name
-
 from http_client.balancing import Server, UpstreamConfig
-
 from http_client.options import options
-
+from http_client.util import restore_original_datacenter_name
 
 consul_util_logger = logging.getLogger('consul_parser')
 
