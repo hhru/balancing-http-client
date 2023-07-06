@@ -1,11 +1,12 @@
+import asyncio
 import threading
-from functools import partial
 from http import HTTPStatus
 
-from tornado.httpclient import HTTPRequest, HTTPError
-from tornado.testing import gen_test, bind_unused_port
+import aiohttp
+import pytest
 
-from tests.test_balancing_base import BalancingClientMixin, WorkingServerTestCase
+from pytest_httpserver import HTTPServer
+from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
 def low_backlog_server_handler(sock, event):
@@ -13,40 +14,41 @@ def low_backlog_server_handler(sock, event):
     event.wait()
 
 
-class LowBacklogTest(BalancingClientMixin, WorkingServerTestCase):
+class TestLowBacklog(TestBase, BalancingClientMixin):
 
-    def setUp(self):
-        self.low_backlog_server_socket, low_backlog_server_port = bind_unused_port()
+    @pytest.fixture(scope="function", autouse=True)
+    def setup_method(self, working_server: HTTPServer):
+        self.low_backlog_server_socket, low_backlog_server_port = self.bind_unused_port()
         self.stop_event = threading.Event()
         low_backlog_server = threading.Thread(target=low_backlog_server_handler,
                                               args=(self.low_backlog_server_socket, self.stop_event))
         low_backlog_server.daemon = True
         low_backlog_server.start()
+        super().setup_method(working_server)
+        self.register_ports_for_upstream(low_backlog_server_port, working_server.port)
 
-        super().setUp()
-        self.register_ports_for_upstream(low_backlog_server_port, self.get_http_port())
-
-        self.io_loop.run_sync(partial(self.fill_backlog, low_backlog_server_port))
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(self.fill_backlog(low_backlog_server_port))
+        loop.close()
 
     async def fill_backlog(self, port):
-        request = HTTPRequest(f'http://127.0.0.1:{port}', connect_timeout=0.1, request_timeout=0.1)
+        http_client = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(total=0.1, connect=0.1)
         for i in range(3):
             try:
-                await self.http_client.fetch(request)
-            except HTTPError:
+                await http_client.get(f'http://127.0.0.1:{port}', timeout=timeout)
+            except Exception:
                 pass
+        await http_client.close()
 
-    def tearDown(self):
-        super().tearDown()
+    def teardown_method(self):
         self.stop_event.set()
         self.low_backlog_server_socket.close()
 
-    @gen_test
     async def test_low_backlog_idempotent_retries(self):
-        response = await self.balancing_client.get_url('test', '/')
-        self.assertEqual(HTTPStatus.OK, response.response.code)
+        result = await self.balancing_client.get_url('test', '/')
+        assert result.status_code == HTTPStatus.OK
 
-    @gen_test
     async def test_low_backlog_non_idempotent_retries(self):
-        response = await self.balancing_client.post_url('test', '/')
-        self.assertEqual(HTTPStatus.OK, response.response.code)
+        result = await self.balancing_client.post_url('test', '/')
+        assert result.status_code == HTTPStatus.OK

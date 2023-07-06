@@ -20,6 +20,7 @@ class Options:
     http_client_allow_cross_datacenter_requests: bool = False
     self_node_filter_enabled: bool = False
     node_name: str = ''
+    max_clients: int = 100
 
 
 options = Options()

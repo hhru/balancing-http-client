@@ -1,8 +1,7 @@
 import random
-import unittest
 
 from http_client import options
-from http_client.balancing import Upstream, Server
+from http_client.balancing import Server, Upstream
 
 
 def run_simulation(upstream, requests_interval, requests, max_execution_time):
@@ -37,7 +36,7 @@ def _upstream(weights):
     return Upstream('upstream', {}, [Server(str(weight), weight, dc='test') for weight in weights])
 
 
-class TestHttpError(unittest.TestCase):
+class TestHttpError:
 
     def setUp(self) -> None:
         options.datacenter = "test"
@@ -50,11 +49,9 @@ class TestHttpError(unittest.TestCase):
             request_ratio = float(requests[i]) / float(requests[i - 1])
             weights_ratio = float(weights[i]) / float(weights[i - 1])
 
-            self.assertTrue(
-                abs(request_ratio - weights_ratio) <= 0.3,
-                f'{requests} and {weights} ratio difference for elements {i - 1} and {i} is too big: '
-                f'{request_ratio} vs {weights_ratio}'
-            )
+            assert abs(request_ratio - weights_ratio) <= 0.3, \
+                f'{requests} and {weights} ratio difference for elements {i - 1} and {i} ' \
+                f'is too big: {request_ratio} vs {weights_ratio}'
 
     def test_sparse_requests(self):
         weights = [50, 100, 200]
