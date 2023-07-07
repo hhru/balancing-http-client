@@ -52,8 +52,8 @@ class TestBalancingTracing(TestBase, BalancingClientMixin):
         request_balancer = self.create_request_balancer(self.servers[2])
         await request_balancer.execute()
 
-        expected_trace = "127.0.0.1:8081~None~Failed to connect to 127.0.0.1:8081 -> " \
-                         "127.0.0.1:8082~None~Failed to connect to 127.0.0.1:8082 -> " \
+        expected_trace = "127.0.0.1:8081~599~Failed to connect to 127.0.0.1:8081 -> " \
+                         "127.0.0.1:8082~599~Failed to connect to 127.0.0.1:8082 -> " \
                          "127.0.0.1:8083~200~None"
         actual_trace = request_balancer.get_trace()
         assert actual_trace == expected_trace

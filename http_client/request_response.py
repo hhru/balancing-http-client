@@ -208,7 +208,7 @@ class RequestResult:
     def status_code(self):
         if self._response is not None:
             return self._response.status
-        return None
+        return 599
 
     @property
     def error(self) -> Optional[str]:
