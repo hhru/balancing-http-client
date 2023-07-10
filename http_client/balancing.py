@@ -442,10 +442,10 @@ class RequestBalancer(RequestEngine):
         pass
 
     def _enable_speculative_retry(self):
-        return 0 < self.speculative_timeout_pct < 1
+        return self.request.idempotent and 0 < self.speculative_timeout_pct < 1
 
     def _check_speculative_retry(self):
-        return self.request.idempotent and self.tries_left > 0
+        return self.tries_left > 0
 
     def _unwrap_debug(self, request, result: RequestResult, retries_count):
         debug_extra = {}
@@ -625,19 +625,14 @@ class RequestBalancerBuilder(RequestEngineBuilder):
 async def speculative_requests(request: asyncio.Task, speculative_request: asyncio.Task) -> RequestResult:
     done, pending = await asyncio.wait([request, speculative_request], return_when=asyncio.FIRST_COMPLETED)
 
-    if request in done and not request.result().failed:
+    if request in done:
         speculative_request.cancel()
         return request.result()
 
-    if speculative_request in done and speculative_request.result() is not None and \
-            not speculative_request.result().failed:
-        request.cancel()
-        return speculative_request.result()
+    if speculative_request in done:
+        if speculative_request.result() is not None:
+            request.cancel()
+            return speculative_request.result()
 
-    for task in pending:
-        await task
-
-    if not request.result().failed or speculative_request.result() is None or speculative_request.result().failed:
-        return request.result()
-
-    return speculative_request.result()
+    await request
+    return request.result()
