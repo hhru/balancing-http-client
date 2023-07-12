@@ -2,6 +2,7 @@ import abc
 import asyncio
 import contextvars
 from asyncio import Future, TimeoutError
+import time
 from typing import Callable
 
 import aiohttp
@@ -123,7 +124,8 @@ class AIOHttpClientWrapper:
     while we heavily dependent on tornado_mocks, we must abide tornado client interface
     """
     def __init__(self):
-        self._elapsed_time = contextvars.ContextVar('elapsed')
+        self._elapsed_time = contextvars.ContextVar('elapsed_time')
+        self._start_time = contextvars.ContextVar('start_time')
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_start.append(self._on_request_start)
         trace_config.on_request_end.append(self._on_request_end)
@@ -143,6 +145,7 @@ class AIOHttpClientWrapper:
         self.io_loop = IoLoopTestWrapper()
 
     async def _on_request_start(self, session, trace_config_ctx, params):
+        self._start_time.set(time.time())
         trace_config_ctx.start = asyncio.get_event_loop().time()
 
     async def _on_request_end(self, session, trace_config_ctx, params):
@@ -189,6 +192,7 @@ class AIOHttpClientWrapper:
                     timeout=request.timeout,
                     proxy=request.proxy,
                 )
+                request.start_time = self._start_time.get()
                 await response.read()
                 result = RequestResult(request, response, elapsed_time=self._elapsed_time.get())
 

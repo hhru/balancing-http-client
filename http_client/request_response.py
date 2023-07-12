@@ -52,7 +52,7 @@ class RequestBuilder:
     __slots__ = (
         'host', 'path', 'url', 'name', 'method', 'connect_timeout', 'request_timeout', 'timeout', 'request_time_left',
         'max_timeout_tries', 'follow_redirects', 'idempotent', 'speculative_timeout_pct', 'body', 'headers',
-        'upstream_name', 'upstream_datacenter', 'proxy', 'session_required', 'request_time_left'
+        'upstream_name', 'upstream_datacenter', 'proxy', 'session_required', 'request_time_left', 'start_time'
     )
 
     def __init__(self, host: str, source_app: str, path: str, name: str,
@@ -72,7 +72,11 @@ class RequestBuilder:
         self.idempotent = idempotent
         self.speculative_timeout_pct = speculative_timeout_pct
         self.body = None
-        self.headers = headers or CIMultiDict()
+        self.start_time = None
+        self.headers = CIMultiDict()
+        if headers is not None:
+            for key, value in headers.items():
+                self.headers.add(key, value if value is not None else '')
 
         if source_app and not self.headers.get(USER_AGENT_HEADER):
             self.headers[USER_AGENT_HEADER] = source_app
@@ -213,6 +217,8 @@ class RequestResult:
     @property
     def error(self) -> Optional[str]:
         if self._response is not None:
+            if self.status_code < 400:
+                return None
             return self._response.reason
         return str(self.exc)
 
