@@ -165,15 +165,16 @@ class RequestResult:
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
 
-    def __init__(self, request: RequestBuilder, response: Optional[ClientResponse] = None, exc=None, elapsed_time=None):
+    def __init__(self, request: RequestBuilder, response: Optional[ClientResponse] = None, exc=None, elapsed_time=None,
+                 parse_response=True, parse_on_error=False):
         self.name = request.name
         self.request = request
 
         self.exc = exc
         self.elapsed_time = elapsed_time
 
-        self.parse_response = True
-        self.parse_on_error = False
+        self.parse_response = parse_response
+        self.parse_on_error = parse_on_error
 
         self._response = response
         self._content_type = None
@@ -299,6 +300,8 @@ class RequestResult:
                 self.request,
                 response,
                 elapsed_time=self.elapsed_time,
+                parse_response=self.parse_response,
+                parse_on_error=self.parse_on_error
             )
 
             return debug_response, fake_result
