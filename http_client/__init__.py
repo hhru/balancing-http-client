@@ -16,6 +16,9 @@ from http_client.request_response import (NoAvailableServerException,
 from http_client.util import make_body, make_mfd, to_unicode
 
 
+client_request_context = contextvars.ContextVar('request')
+
+
 class RequestEngine(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def execute(self) -> Future[RequestResult]:
@@ -182,6 +185,7 @@ class AIOHttpClientWrapper:
     def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
         async def real_fetch():
             self._elapsed_time.set(0)
+            client_request_context.set(request)
             try:
                 response = await self.client_session.request(
                     method=request.method,
