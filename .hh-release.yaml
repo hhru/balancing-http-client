@@ -1,0 +1,9 @@
+version: 2.0.4
+docker_context: .
+build_docker_file: docker/Dockerfile.building
+build_method: pytest_run
+update_method: python_update
+python_version_file: http_client/version.py
+deploy_method: nope_deploy
+type: library
+changelog: true
