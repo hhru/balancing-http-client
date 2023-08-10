@@ -1,8 +1,8 @@
 import abc
 import asyncio
 import contextvars
-from asyncio import Future, TimeoutError
 import time
+from asyncio import Future, TimeoutError
 from typing import Callable
 
 import aiohttp
@@ -10,11 +10,9 @@ import yarl
 from aiohttp.client_exceptions import ClientError
 
 from http_client.options import options
-from http_client.request_response import (NoAvailableServerException,
-                                          RequestBuilder, RequestResult,
-                                          TornadoResponseWrapper)
+from http_client.request_response import (
+    NoAvailableServerException, RequestBuilder, RequestResult, TornadoResponseWrapper)
 from http_client.util import make_body, make_mfd, to_unicode
-
 
 client_request_context = contextvars.ContextVar('request')
 
@@ -167,7 +165,8 @@ class AIOHttpClientWrapper:
                 only for testing
                 tornado_mocks gives tornado.httpclient.HTTPResponse
                 """
-                result = RequestResult(request, TornadoResponseWrapper(response), elapsed_time=request.request_timeout)
+                resp = TornadoResponseWrapper(response)
+                result = RequestResult(request, resp, resp.body, elapsed_time=request.request_timeout)
                 future.set_result(result)
             future.set_result(response)
 
@@ -197,8 +196,8 @@ class AIOHttpClientWrapper:
                     proxy=request.proxy,
                 )
                 request.start_time = self._start_time.get()
-                await response.read()
-                result = RequestResult(request, response, elapsed_time=self._elapsed_time.get())
+                response_body = await response.read()
+                result = RequestResult(request, response, response_body, elapsed_time=self._elapsed_time.get())
 
             except (ClientError, TimeoutError) as exc:
                 result = RequestResult(request, elapsed_time=self._elapsed_time.get(), exc=exc)

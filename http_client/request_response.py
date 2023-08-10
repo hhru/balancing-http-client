@@ -1,9 +1,8 @@
-import yarl
-
 try:
     import ujson as json
 except ImportError:
     import json
+
 import base64
 import logging
 import re
@@ -18,8 +17,7 @@ from lxml import etree
 from multidict import CIMultiDict
 
 from http_client.options import options
-from http_client.util import (make_body, make_mfd, make_url, to_unicode,
-                              xml_to_dict)
+from http_client.util import make_body, make_mfd, make_url, to_unicode, xml_to_dict
 
 USER_AGENT_HEADER = 'User-Agent'
 
@@ -112,7 +110,7 @@ class RequestBuilder:
             self.url = f'http://{self.host}{self.path}'
 
 
-def _parse_response(response_body, effective_url, parser, response_type):
+def _parse_response(response_body, real_url, parser, response_type):
     try:
         return parser(response_body)
     except Exception:
@@ -135,7 +133,7 @@ def _parse_response(response_body, effective_url, parser, response_type):
 
         http_client_logger.exception(
             'failed to parse %s response from %s, body %s',
-            response_type, effective_url, body_preview
+            response_type, real_url, body_preview
         )
 
         return DataParseError(reason=f'invalid {response_type}')
@@ -160,12 +158,13 @@ RESPONSE_CONTENT_TYPES = {
 class RequestResult:
     __slots__ = (
         'name', 'request', 'parse_on_error', 'parse_response', '_content_type', '_data',
-        '_data_parse_error', 'exc', 'elapsed_time', '_response'
+        '_data_parse_error', 'exc', 'elapsed_time', '_response', '_response_body'
     )
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
 
-    def __init__(self, request: RequestBuilder, response: Optional[ClientResponse] = None, exc=None, elapsed_time=None,
+    def __init__(self, request: RequestBuilder, response: Optional[ClientResponse] = None,
+                 response_body: Optional[bytes] = None, exc=None, elapsed_time=None,
                  parse_response=True, parse_on_error=False):
         self.name = request.name
         self.request = request
@@ -176,10 +175,11 @@ class RequestResult:
         self.parse_response = parse_response
         self.parse_on_error = parse_on_error
 
-        self._response = response
+        self._response: Optional[ClientResponse] = response
+        self._response_body: Optional[bytes] = response_body
         self._content_type = None
         self._data = None
-        self._data_parse_error = None
+        self._data_parse_error: Optional[DataParseError] = None
 
     def __repr__(self):
         args = ', '.join(f'{a}={repr(getattr(self, a))}' for a in self._args)
@@ -190,19 +190,22 @@ class RequestResult:
             return
 
         if self.exc is not None or self.status_code >= 400 and not self.parse_on_error:
-            data_or_error = DataParseError(reason=self.error, code=self.status_code)
-        elif not self.parse_response or self.status_code == 204:
-            data_or_error = self._response._body
+            self._data_parse_error = DataParseError(reason=self.error, code=self.status_code)
+            return
+
+        if not self.parse_response or self.status_code == 204:
+            self._data = None if self._response_body == b'' else self._response_body
             self._content_type = 'raw'
-        else:
-            data_or_error = None
-            content_type = self.headers.get('Content-Type', '')
-            for name, (regex, parser) in RESPONSE_CONTENT_TYPES.items():
-                if regex.search(content_type):
-                    effective_url = self.request.url if self.exc is not None else self._response.real_url
-                    data_or_error = parser(self._response._body, effective_url)
-                    self._content_type = name
-                    break
+            return
+
+        data_or_error = None
+        content_type = self.headers.get('Content-Type', '')
+        for name, (regex, parser) in RESPONSE_CONTENT_TYPES.items():
+            if regex.search(content_type):
+                real_url = self.request.url if self.exc is not None else self._response.real_url
+                data_or_error = parser(self._response_body, real_url)
+                self._content_type = name
+                break
 
         if isinstance(data_or_error, DataParseError):
             self._data_parse_error = data_or_error
@@ -244,10 +247,8 @@ class RequestResult:
         return self.exc is not None or self.status_code >= 400 or self.data_parsing_failed
 
     @property
-    def raw_body(self):
-        if self._response is not None:
-            return self._response._body
-        return None
+    def raw_body(self) -> Optional[bytes]:
+        return self._response_body
 
     def to_dict(self):
         self._parse_data()
@@ -268,12 +269,12 @@ class RequestResult:
         return self.data if self._content_type == 'xml' else None
 
     def get_body_length(self):
-        if self._response is not None and self._response._body is not None:
-            return len(self._response._body)
+        if self._response_body is not None:
+            return len(self._response_body)
         return None
 
     def response_from_debug(self):
-        debug_response = etree.XML(self._response._body)
+        debug_response = etree.XML(self._response_body)
         original_response = debug_response.find('original-response')
 
         if original_response is not None:
@@ -293,12 +294,12 @@ class RequestResult:
                                       request_info=self._response.request_info, traces=self._response._traces,
                                       loop=self._response._loop, session=self._response._session)
             response._headers = headers
-            response._body = original_buffer
             response.status = int(response_info.get('code', 599))
 
             fake_result = RequestResult(
                 self.request,
                 response,
+                original_buffer,
                 elapsed_time=self.elapsed_time,
                 parse_response=self.parse_response,
                 parse_on_error=self.parse_on_error
@@ -329,7 +330,7 @@ class TornadoResponseWrapper:
         return self.resp.reason
 
     @property
-    def _body(self):
+    def body(self):
         return self.resp.body
 
     @property

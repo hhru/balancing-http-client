@@ -1,30 +1,31 @@
 [build-system]
-requires = ["poetry-core>=1.5.1"]
-build-backend = "poetry.core.masonry.api"
+requires = ['poetry-core>=1.5.1']
+build-backend = 'poetry.core.masonry.api'
 
 [tool.poetry]
-name = "http_client"
-version = "2.0.4"
-description = "Balancing http client around aiohttp"
-authors = ["Leonid Vinogradov <l.vinogradov@hh.ru>"]
-packages = [
-    { include = "http_client" },
-]
+name = 'http_client'
+version = '2.1.0'
+description = 'Balancing http client around aiohttp'
+authors = ['architecture <arch-team@hh.ru>']
 
 [tool.poetry.dependencies]
-python = "3.11.*"
-aiohttp = "3.8.3"
-lxml = "4.9.2"
-yarl = "1.9.2"
+python = '3.11.*'
+aiohttp = '3.8.3'
+lxml = '4.9.2'
+yarl = '1.9.2'
 
 [tool.poetry.group.test.dependencies]
-pytest = "7.3.2"
-pycodestyle = "2.10.0"
-pytest-httpserver = "1.0.8"
+pytest = '7.3.2'
+pycodestyle = '2.10.0'
+pytest-httpserver = '1.0.8'
 
 [tool.pytest.ini_options]
-testpaths = "tests"
+testpaths = 'tests'
 addopts = '''
   --asyncio-mode=auto
   -p no:warnings
 '''
+
+[tool.isort]
+line_length=120
+multi_line_output=4
