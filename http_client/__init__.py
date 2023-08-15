@@ -1,8 +1,8 @@
 import abc
 import asyncio
 import contextvars
-import time
 from asyncio import Future, TimeoutError
+import time
 from typing import Callable
 
 import aiohttp
@@ -10,8 +10,9 @@ import yarl
 from aiohttp.client_exceptions import ClientError
 
 from http_client.options import options
-from http_client.request_response import (
-    NoAvailableServerException, RequestBuilder, RequestResult, TornadoResponseWrapper)
+from http_client.request_response import (NoAvailableServerException,
+                                          RequestBuilder, RequestResult,
+                                          TornadoResponseWrapper)
 from http_client.util import make_body, make_mfd, to_unicode
 
 client_request_context = contextvars.ContextVar('request')
@@ -183,7 +184,6 @@ class AIOHttpClientWrapper:
 
     def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
         async def real_fetch():
-            self._elapsed_time.set(0)
             client_request_context.set(request)
             try:
                 response = await self.client_session.request(
@@ -195,9 +195,9 @@ class AIOHttpClientWrapper:
                     timeout=request.timeout,
                     proxy=request.proxy,
                 )
-                request.start_time = self._start_time.get()
+                request.start_time = self._start_time.get(0)
                 response_body = await response.read()
-                result = RequestResult(request, response, response_body, elapsed_time=self._elapsed_time.get())
+                result = RequestResult(request, response, response_body, elapsed_time=self._elapsed_time.get(0))
 
             except (ClientError, TimeoutError) as exc:
                 result = RequestResult(request, elapsed_time=self._elapsed_time.get(), exc=exc)
