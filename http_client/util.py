@@ -5,7 +5,9 @@ from uuid import uuid4
 from http_client.options import options
 
 
-def to_unicode(value: bytes) -> str:
+def to_unicode(value: None | str | bytes) -> str:
+    if isinstance(value, (str, type(None))):
+        return value
     if not isinstance(value, bytes):
         raise TypeError(f'Expected bytes; got {type(value)}')
     return value.decode('utf-8')
