@@ -16,6 +16,7 @@ yarl = '1.9.2'
 
 [tool.poetry.group.test.dependencies]
 pytest = '7.3.2'
+pytest-asyncio = '0.21.1'
 pycodestyle = '2.10.0'
 pytest-httpserver = '1.0.8'
 
