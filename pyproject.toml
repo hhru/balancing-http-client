@@ -4,7 +4,7 @@ build-backend = 'poetry.core.masonry.api'
 
 [tool.poetry]
 name = 'http_client'
-version = '2.1.1'
+version = '2.1.2'
 description = 'Balancing http client around aiohttp'
 authors = ['architecture <arch-team@hh.ru>']
 
@@ -16,6 +16,7 @@ yarl = '1.9.2'
 
 [tool.poetry.group.test.dependencies]
 pytest = '7.3.2'
+pytest-asyncio = '0.21.1'
 pycodestyle = '2.10.0'
 pytest-httpserver = '1.0.8'
 
