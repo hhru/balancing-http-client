@@ -27,7 +27,7 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
                 done[address_index] = done[address_index] + 1
                 mapping[index] = address_index
             else:
-                upstream.release_server([upstream.servers[mapping[index]].address])
+                upstream.release_server([upstream.servers[mapping[index]].address], False, 0, False)
                 del mapping[index]
     return done
 

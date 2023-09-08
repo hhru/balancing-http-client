@@ -92,7 +92,7 @@ class TestHttpClientBalancer:
         address, _ = upstream.acquire_server()
         assert address == '2'
 
-        upstream.release_server(address)
+        upstream.release_server(address, False, 0, False)
 
         address, _ = upstream.acquire_server()
         assert address == '2'
@@ -102,7 +102,7 @@ class TestHttpClientBalancer:
     def test_release_none_server(self):
         upstream = self._upstream([Server('1', 1, dc='test')])
         upstream.servers[0] = None
-        upstream.release_server('some_address')
+        upstream.release_server('some_address', False, 0, False)
 
     def test_replace_in_process(self):
         upstream = self._upstream([Server('1', 1, dc='test'), Server('2', 5, dc='test')])
@@ -119,7 +119,7 @@ class TestHttpClientBalancer:
 
         assert _total_requests(upstream) == 1
 
-        upstream.release_server(address_1)
+        upstream.release_server(address_1, False, 0, False)
 
         assert _total_requests(upstream) == 0
         assert server.current_requests == 0

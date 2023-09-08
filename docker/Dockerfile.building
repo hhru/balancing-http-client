@@ -5,8 +5,11 @@ RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
 
 COPY poetry.lock /home/building/poetry.lock
 COPY pyproject.toml /home/building/pyproject.toml
-COPY http_client /home/building/http_client/
-COPY tests /home/building/tests/
 WORKDIR /home/building
 
 RUN --mount=type=ssh poetry install --no-root
+
+COPY http_client /home/building/http_client/
+COPY tests /home/building/tests/
+
+CMD ["pytest"]
