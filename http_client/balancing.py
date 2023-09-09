@@ -33,7 +33,7 @@ class DowntimeDetector:
         self.errors_count = 0
 
     def failed(self):
-        self.errors_count = self.errors_count + 1 - self.errors[self.current]
+        self.errors_count += 1 - self.errors[self.current]
         self.errors[self.current] = 1
         self.current = (self.current + 1) % self.n
 
