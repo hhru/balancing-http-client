@@ -3,7 +3,7 @@ import logging
 import time
 from asyncio import Future
 from collections import OrderedDict
-from random import random, shuffle, randint
+from random import random, shuffle
 from typing import List
 
 import aiohttp
@@ -15,54 +15,54 @@ from http_client.options import options
 from http_client.request_response import (FailFastError,
                                           NoAvailableServerException,
                                           ResponseData)
-from http_client.util import utf8
+from http_client.util import utf8, weighted_sample
+
+import random
+import collections
 
 DOWNTIME_DETECTOR_WINDOW = 100
 RESPONSE_TIME_TRACKER_WINDOW = 500
 WARM_UP_DEFAULT_TIME_MILLIS = 100
 lowest_health_percent = 2
-lowest_health = int(lowest_health_percent * DOWNTIME_DETECTOR_WINDOW / 100)
+LOWEST_HEALTH = int(lowest_health_percent * DOWNTIME_DETECTOR_WINDOW / 100)
 http_client_logger = logging.getLogger('http_client')
 
 
 class DowntimeDetector:
     def __init__(self, n=DOWNTIME_DETECTOR_WINDOW):
         self.n = n
-        self.errors = [0] * n
-        self.current = 0
-        self.errors_count = 0
+        self.errors_counter = 0
+        self.health = LOWEST_HEALTH
 
     def failed(self):
-        self.errors_count += 1 - self.errors[self.current]
-        self.errors[self.current] = 1
-        self.current = (self.current + 1) % self.n
+        if self.errors_counter < self.n:
+            self.errors_counter += 1
+        self.health = max(self.success_count(), LOWEST_HEALTH)
 
     def success(self):
-        self.errors_count -= self.errors[self.current]
-        self.errors[self.current] = 0
-        self.current = (self.current + 1) % self.n
+        if self.errors_counter > 0:
+            self.errors_counter -= 1
+        self.health = max(self.success_count(), LOWEST_HEALTH)
 
     def success_count(self):
-        return self.n - self.errors_count
+        return self.n - self.errors_counter
 
 
 class ResponseTimeTracker:
     def __init__(self, n=RESPONSE_TIME_TRACKER_WINDOW):
         self.is_warm_up = True
-        self.current = 0
         self.total = 0
         self.n = n
-        self.times = [0] * n
+        self.times = collections.deque([0], n)
+        self.mean = 1
 
     def time(self, time_ms: int):
-        self.total += time_ms - self.times[self.current]
-        self.times[self.current] = time_ms
-        if self.current == self.n - 1:
-            self.is_warm_up = False
-        self.current = (self.current + 1) % self.n
+        self.total += time_ms - self.times[0]
+        self.mean = self.total // self.n
 
-    def mean(self) -> int:
-        return self.total // self.n
+        self.times.append(time_ms)
+        if len(self.times) == self.n:
+            self.is_warm_up = False
 
 
 class Server:
@@ -382,64 +382,46 @@ class AdaptiveBalancingStrategy:
     def get_servers(servers: List[Server], max_tries: int) -> List[Server]:
         n = len(servers)
         count = min(n, max_tries)
+        with_logs = False
+        if http_client_logger.isEnabledFor(logging.DEBUG):
+            with_logs = True
 
         if n <= 1:
             return servers
 
-        scores = [0] * n
-        healths = [0] * n
-
         # gather statistics
         is_any_warming_up = False
-        min_mean = None
-        max_mean = None
-        for i, server in enumerate(servers):
-            healths[i] = server.downtime_detector.success_count()
+        min_mean = 0
+        max_mean = 0
+        for server in servers:
             tracker: ResponseTimeTracker = server.response_time_tracker
-            http_client_logger.debug('gathering stats %s, warm_up: %s, time: %s, successCount: %s', server,
-                                     tracker.is_warm_up, tracker.mean(), server.downtime_detector.success_count())
-
             if tracker.is_warm_up:
                 is_any_warming_up = True
-            else:
-                mean = max(1, tracker.mean())
-                scores[i] = mean
-                min_mean = min(min_mean, mean) if min_mean else mean
-                max_mean = max(max_mean, mean) if max_mean else mean
 
-        for i in range(n):
-            time_ms = WARM_UP_DEFAULT_TIME_MILLIS if is_any_warming_up else scores[i]
-            scores[i] = time_ms if is_any_warming_up else round(min_mean * max_mean / time_ms)
+            if with_logs:
+                http_client_logger.debug('gathering stats %s, warm_up: %s, time: %s, successCount: %s', server,
+                                         tracker.is_warm_up, tracker.mean, server.downtime_detector.health)
 
         # adjust scores based on downtime detector health and response time tracker score
-        total = 0
+        if not is_any_warming_up:
+            max_mean = max(servers, key=lambda s: s.response_time_tracker.mean).response_time_tracker.mean
+            min_mean = min(servers, key=lambda s: s.response_time_tracker.mean).response_time_tracker.mean
+
+        scores = []
         for i in range(n):
-            inverted_time = scores[i]
-            health = max(healths[i], lowest_health)
+            if is_any_warming_up:
+                inverted_time = WARM_UP_DEFAULT_TIME_MILLIS
+            else:
+                inverted_time = round(min_mean * max_mean / servers[i].response_time_tracker.mean)
+
+            health = servers[i].downtime_detector.health
             score = inverted_time * health
-            http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
-                                     servers[i], health, inverted_time, score)
-            total += score
-            scores[i] = score
+            if with_logs:
+                http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
+                                         servers[i], health, inverted_time, score)
+            scores.append(score)
 
-        # weighted-randomly pick count elements
-        shuffled = []
-        for i in range(count):
-            j = n - i - 1
-            pick = randint(0, total-1)
-            scores_sum = 0
-            for k in range(j+1):  # random index of element to swap
-                scores_sum += scores[k]
-                if scores_sum > pick:
-                    shuffled.append(servers[k])
-                    http_client_logger.debug('balancer pick for %s, %s:%s (%s)', servers[k], n - 1 - j, k, n)
-                    total -= scores[k]
-
-                    servers[k], servers[j] = servers[j], servers[k]
-                    scores[k], scores[j] = scores[j], scores[k]
-                    break
-
-        return shuffled
+        return weighted_sample(servers, scores, count)
 
 
 class ImmediateResultOrPreparedRequest:
