@@ -1,9 +1,13 @@
-from http_client.balancing import Server, AdaptiveBalancingStrategy, AdaptiveBalancingState, Upstream
+from http_client.balancing import Server, AdaptiveBalancingStrategy, AdaptiveBalancingState, Upstream, BalancingState
 from http_client.request_response import RequestResult, RequestBuilder
 from aiohttp.client_reqrep import ClientResponse
 from aiohttp.client_exceptions import ServerTimeoutError
 import asyncio
 import yarl
+import timeit
+from functools import partial
+import random
+import pytest
 
 
 class TestAdaptiveBalancingStrategy:
@@ -99,6 +103,37 @@ class TestAdaptiveBalancingStrategy:
         assert 0.34 <= server_statistics['test2']['rate'] <= 0.39
         assert 0.24 <= server_statistics['test3']['rate'] <= 0.29
 
+    @pytest.mark.skip(reason='for dev purpose')
+    def test_speed(self):
+        servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1'),
+                   Server('test4', 1, 'dc1'), Server('test5', 1, 'dc1'), Server('test6', 1, 'dc1'),
+                   Server('test7', 1, 'dc1')]
+        upstream = Upstream('my_backend', {}, servers)
+        upstream.datacenter = 'dc1'
+        servers_hits = {server.address: {'ok': 0, 'fail': 0} for server in upstream.servers}
+
+        def make_many_requests(adaptive=False):
+            n_requests = 100_000
+
+            def response_time_func(host):
+                x = random.random()
+                return x * 0.8 + 0.1
+
+            def response_type_func(host):
+                return 200
+
+            for i in range(n_requests):
+                state = AdaptiveBalancingState(upstream, 'default') if adaptive else BalancingState(upstream, 'default')
+                upstream_config = state.get_upstream_config()
+                max_tries = upstream_config.max_tries
+                execute_request_with_retry(state, max_tries, servers_hits, response_time_func, response_type_func)
+
+        print('report:')
+        res = timeit.timeit(partial(make_many_requests, True), number=1)
+        print(f'adaptive - {res} sec')
+        res = timeit.timeit(make_many_requests, number=1)
+        print(f'simple - {res} sec')
+
 
 def make_requests(upstream, response_time_func, response_type_func):
     servers_hits = {server.address: {'ok': 0, 'fail': 0} for server in upstream.servers}
@@ -117,7 +152,7 @@ def make_requests(upstream, response_time_func, response_type_func):
 def execute_request_with_retry(state, tries_left, servers_hits, response_time_func, response_type_func):
     # 1. получаем сервер на который пойдем
     state.acquire_server()
-    if not state.is_server_available() or state.adaptive_failed:
+    if not state.is_server_available() or (isinstance(state, AdaptiveBalancingState) and state.adaptive_failed):
         raise Exception('no available server')
     host = state.current_host
 

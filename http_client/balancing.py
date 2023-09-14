@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import logging
 import time
 from asyncio import Future
@@ -17,8 +18,6 @@ from http_client.request_response import (FailFastError,
                                           ResponseData)
 from http_client.util import utf8, weighted_sample
 
-import random
-import collections
 
 DOWNTIME_DETECTOR_WINDOW = 100
 RESPONSE_TIME_TRACKER_WINDOW = 500
@@ -31,21 +30,18 @@ http_client_logger = logging.getLogger('http_client')
 class DowntimeDetector:
     def __init__(self, n=DOWNTIME_DETECTOR_WINDOW):
         self.n = n
-        self.errors_counter = 0
+        self.healths = collections.deque([0], n)
         self.health = LOWEST_HEALTH
 
     def failed(self):
-        if self.errors_counter < self.n:
-            self.errors_counter += 1
-        self.health = max(self.success_count(), LOWEST_HEALTH)
+        self.health -= self.healths[0]
+        if self.health < LOWEST_HEALTH:
+            self.health = LOWEST_HEALTH
+        self.healths.append(0)
 
     def success(self):
-        if self.errors_counter > 0:
-            self.errors_counter -= 1
-        self.health = max(self.success_count(), LOWEST_HEALTH)
-
-    def success_count(self):
-        return self.n - self.errors_counter
+        self.health += 1 - self.healths[0]
+        self.healths.append(1)
 
 
 class ResponseTimeTracker:
@@ -58,7 +54,7 @@ class ResponseTimeTracker:
 
     def time(self, time_ms: int):
         self.total += time_ms - self.times[0]
-        self.mean = self.total // self.n
+        self.mean = self.total // self.n or 1
 
         self.times.append(time_ms)
         if len(self.times) == self.n:
@@ -87,6 +83,9 @@ class Server:
 
         self.downtime_detector = DowntimeDetector()
         self.response_time_tracker = ResponseTimeTracker()
+
+        self.inverted_time = WARM_UP_DEFAULT_TIME_MILLIS
+        self.adaptive_score = self.inverted_time * LOWEST_HEALTH
 
         if self.weight < 1:
             raise ValueError('weight should not be less then 1')
@@ -229,6 +228,12 @@ class Upstream:
         self.allow_cross_dc_requests = options.http_client_allow_cross_datacenter_requests
         self.datacenter: str = options.datacenter
 
+        # adaptive_stats
+        self.is_any_warming_up = None
+        self.min_mean = None
+        self.max_mean = None
+        self._reset_adaptive_stats()
+
     def acquire_server(self, excluded_servers=None):
         index = BalancingStrategy.get_least_loaded_server(self.servers, excluded_servers, self.datacenter,
                                                           self.allow_cross_dc_requests)
@@ -254,11 +259,54 @@ class Upstream:
         if server is not None:
             if adaptive:
                 server.release_adaptive(elapsed_time, is_server_error)
+                self._update_adaptive_stats(is_server_error, server)
             else:
                 server.release(is_retry)
 
         if not adaptive:
             self.rescale(self.servers)
+
+    def _update_adaptive_stats(self, is_server_error, server):
+        if is_server_error:
+            server.adaptive_score = server.inverted_time * server.downtime_detector.health
+            return
+
+        min_max_changed = False
+
+        if self.is_any_warming_up:
+            for serv in self.servers:
+                if serv.response_time_tracker.is_warm_up:
+                    break
+            else:
+                self.is_any_warming_up = False
+
+                self.min_mean = server.response_time_tracker.mean
+                self.max_mean = server.response_time_tracker.mean
+                min_max_changed = True
+        else:
+            if self.min_mean > server.response_time_tracker.mean:
+                self.min_mean = server.response_time_tracker.mean
+                min_max_changed = True
+            if self.max_mean < server.response_time_tracker.mean:
+                self.max_mean = server.response_time_tracker.mean
+                min_max_changed = True
+
+        if self.is_any_warming_up or not min_max_changed:
+            server.adaptive_score = server.inverted_time * server.downtime_detector.health
+            return
+
+        for serv in self.servers:
+            serv.inverted_time = round(self.min_mean * self.max_mean / serv.response_time_tracker.mean)
+            serv.adaptive_score = serv.inverted_time * serv.downtime_detector.health
+
+    def _reset_adaptive_stats(self):
+        self.is_any_warming_up = True
+        self.min_mean = 100500
+        self.max_mean = 0
+
+        for serv in self.servers:
+            serv.inverted_time = WARM_UP_DEFAULT_TIME_MILLIS
+            serv.adaptive_score = WARM_UP_DEFAULT_TIME_MILLIS * serv.downtime_detector.health
 
     def rescale(self, servers):
         rescale = [True, self.allow_cross_dc_requests]
@@ -292,6 +340,7 @@ class Upstream:
         return UpstreamConfig()
 
     def _update_servers(self, servers):
+        self._reset_adaptive_stats()
         mapping = {server.address: server for server in servers}
 
         for index, server in enumerate(self.servers):
@@ -382,45 +431,11 @@ class AdaptiveBalancingStrategy:
     def get_servers(servers: List[Server], max_tries: int) -> List[Server]:
         n = len(servers)
         count = min(n, max_tries)
-        with_logs = False
-        if http_client_logger.isEnabledFor(logging.DEBUG):
-            with_logs = True
 
         if n <= 1:
             return servers
 
-        # gather statistics
-        is_any_warming_up = False
-        min_mean = 0
-        max_mean = 0
-        for server in servers:
-            tracker: ResponseTimeTracker = server.response_time_tracker
-            if tracker.is_warm_up:
-                is_any_warming_up = True
-
-            if with_logs:
-                http_client_logger.debug('gathering stats %s, warm_up: %s, time: %s, successCount: %s', server,
-                                         tracker.is_warm_up, tracker.mean, server.downtime_detector.health)
-
-        # adjust scores based on downtime detector health and response time tracker score
-        if not is_any_warming_up:
-            max_mean = max(servers, key=lambda s: s.response_time_tracker.mean).response_time_tracker.mean
-            min_mean = min(servers, key=lambda s: s.response_time_tracker.mean).response_time_tracker.mean
-
-        scores = []
-        for i in range(n):
-            if is_any_warming_up:
-                inverted_time = WARM_UP_DEFAULT_TIME_MILLIS
-            else:
-                inverted_time = round(min_mean * max_mean / servers[i].response_time_tracker.mean)
-
-            health = servers[i].downtime_detector.health
-            score = inverted_time * health
-            if with_logs:
-                http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
-                                         servers[i], health, inverted_time, score)
-            scores.append(score)
-
+        scores = [server.adaptive_score for server in servers]
         return weighted_sample(servers, scores, count)
 
 
