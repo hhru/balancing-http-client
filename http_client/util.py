@@ -151,7 +151,7 @@ def restore_original_datacenter_name(datacenter):
     return datacenter
 
 
-def weighted_sample(elems: list, weights: list, k: int) -> list:
+def weighted_sample(elems: list, weights: list, k: int, sum_weight: int) -> list:
     n = len(elems)
 
     if len(weights) != n:
@@ -161,7 +161,6 @@ def weighted_sample(elems: list, weights: list, k: int) -> list:
 
     result = []
     ids = list(range(n))
-    sum_weight = sum(weights)
 
     for _ in range(k):
         pick = random.random() * sum_weight

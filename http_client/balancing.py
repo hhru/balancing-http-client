@@ -405,6 +405,7 @@ class AdaptiveBalancingStrategy:
 
         # adjust scores based on downtime detector health and response time tracker score
         scores = []
+        total = 0
         for i, server in enumerate(servers):
             time_ms = WARM_UP_DEFAULT_TIME_MILLIS if is_any_warming_up else server.response_time_tracker.mean
             inverted_time = time_ms if is_any_warming_up else round(min_mean * max_mean / time_ms)
@@ -413,8 +414,9 @@ class AdaptiveBalancingStrategy:
                 http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
                                          server, server.downtime_detector.health, inverted_time, score)
             scores.append(score)
+            total += score
 
-        return weighted_sample(servers, scores, count)
+        return weighted_sample(servers, scores, count, total)
 
 
 class ImmediateResultOrPreparedRequest:
