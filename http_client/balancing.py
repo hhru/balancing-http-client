@@ -17,6 +17,7 @@ from http_client.request_response import (FailFastError,
                                           NoAvailableServerException,
                                           ResponseData)
 from http_client.util import utf8, weighted_sample
+from rustik import weighted_sample_ids, get_server_ids
 
 
 DOWNTIME_DETECTOR_WINDOW = 100
@@ -376,47 +377,7 @@ class BalancingStrategy:
 class AdaptiveBalancingStrategy:
     @staticmethod
     def get_servers(servers: List[Server], max_tries: int) -> List[Server]:
-        n = len(servers)
-        count = min(n, max_tries)
-
-        if n <= 1:
-            return servers
-
-        with_logs = http_client_logger.isEnabledFor(logging.DEBUG)
-
-        # gather statistics
-        is_any_warming_up = False
-        min_mean = 100500
-        max_mean = 0
-        for i, server in enumerate(servers):
-            tracker: ResponseTimeTracker = server.response_time_tracker
-            if with_logs:
-                http_client_logger.debug('gathering stats %s, warm_up: %s, time: %s, successCount: %s', server,
-                                         tracker.is_warm_up, tracker.mean, server.downtime_detector.health)
-
-            if tracker.is_warm_up:
-                is_any_warming_up = True
-            else:
-                mean = tracker.mean
-                if mean < min_mean:
-                    min_mean = mean
-                if mean > max_mean:
-                    max_mean = mean
-
-        # adjust scores based on downtime detector health and response time tracker score
-        scores = []
-        total = 0
-        for i, server in enumerate(servers):
-            time_ms = WARM_UP_DEFAULT_TIME_MILLIS if is_any_warming_up else server.response_time_tracker.mean
-            inverted_time = time_ms if is_any_warming_up else round(min_mean * max_mean / time_ms)
-            score = inverted_time * server.downtime_detector.health
-            if with_logs:
-                http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
-                                         server, server.downtime_detector.health, inverted_time, score)
-            scores.append(score)
-            total += score
-
-        return weighted_sample(servers, scores, count, total)
+        return [servers[i] for i in get_server_ids(servers, max_tries)]
 
 
 class ImmediateResultOrPreparedRequest:
