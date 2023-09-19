@@ -33,9 +33,11 @@ class TestNotCloseSocket(TestBase, BalancingClientMixin):
     def teardown_method(self):
         self.not_closed_socket_server_socket.close()
 
+    # TODO doesn't work on macos,
+    #  no signal after client_sock.recv(4), so there is asyncio.TimeoutError and no time for retry
     async def test_server_exception_idempotent_retries(self):
         result = await self.balancing_client.get_url('test', '/')
-        assert result.exc is not None
+        assert result.exc is None
 
     async def test_server_exception_non_idempotent_no_retry(self):
         result = await self.balancing_client.post_url('test', '/')

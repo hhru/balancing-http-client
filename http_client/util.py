@@ -1,6 +1,7 @@
 import mimetypes
 from urllib.parse import urlencode
 from uuid import uuid4
+import random
 
 from http_client.options import options
 
@@ -148,3 +149,33 @@ def restore_original_datacenter_name(datacenter):
             return dc
 
     return datacenter
+
+
+def weighted_sample(elems: list, weights: list, k: int, sum_weight: int) -> list:
+    n = len(elems)
+
+    if len(weights) != n:
+        raise ValueError('wrong elems/weights sizes')
+    if k > n:
+        raise ValueError('sample can not be bigger than source')
+
+    result = []
+    ids = list(range(n))
+
+    for _ in range(k):
+        pick = random.random() * sum_weight
+        i = 0
+        sub_sum = weights[0]
+
+        while sub_sum < pick:
+            i += 1
+            sub_sum += weights[i]
+
+        result.append(elems[ids[i]])
+        sum_weight -= weights[ids[i]]
+
+        ids[i], ids[n - 1] = ids[n - 1], ids[i]
+        weights[i], weights[n - 1] = weights[n - 1], weights[i]
+        n -= 1
+
+    return result

@@ -1,9 +1,11 @@
 import asyncio
+import collections
 import logging
 import time
 from asyncio import Future
 from collections import OrderedDict
 from random import random, shuffle
+from typing import List
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
@@ -14,9 +16,49 @@ from http_client.options import options
 from http_client.request_response import (FailFastError,
                                           NoAvailableServerException,
                                           ResponseData)
-from http_client.util import utf8
+from http_client.util import utf8, weighted_sample
 
+
+DOWNTIME_DETECTOR_WINDOW = 100
+RESPONSE_TIME_TRACKER_WINDOW = 500
+WARM_UP_DEFAULT_TIME_MILLIS = 100
+lowest_health_percent = 2
+LOWEST_HEALTH = int(lowest_health_percent * DOWNTIME_DETECTOR_WINDOW / 100)
 http_client_logger = logging.getLogger('http_client')
+
+
+class DowntimeDetector:
+    def __init__(self, n=DOWNTIME_DETECTOR_WINDOW):
+        self.n = n
+        self.healths = collections.deque([0], n)
+        self.health = LOWEST_HEALTH
+
+    def failed(self):
+        self.health -= self.healths[0]
+        if self.health < LOWEST_HEALTH:
+            self.health = LOWEST_HEALTH
+        self.healths.append(0)
+
+    def success(self):
+        self.health += 1 - self.healths[0]
+        self.healths.append(1)
+
+
+class ResponseTimeTracker:
+    def __init__(self, n=RESPONSE_TIME_TRACKER_WINDOW):
+        self.is_warm_up = True
+        self.total = 0
+        self.n = n
+        self.times = collections.deque([0], n)
+        self.mean = 1
+
+    def time(self, time_ms: int):
+        self.total += time_ms - self.times[0]
+        self.mean = self.total // self.n or 1
+
+        self.times.append(time_ms)
+        if len(self.times) == self.n:
+            self.is_warm_up = False
 
 
 class Server:
@@ -29,7 +71,7 @@ class Server:
     def __init__(self, address, weight=1, dc=None):
         self.address = address.rstrip('/')
         self.weight = int(weight)
-        self.datacenter = dc
+        self.datacenter: str = dc
 
         self.current_requests = 0
         self.stat_requests = 0
@@ -38,6 +80,9 @@ class Server:
         self.slow_start_end_time = 0
 
         self.statistics_filled_with_initial_values = False
+
+        self.downtime_detector = DowntimeDetector()
+        self.response_time_tracker = ResponseTimeTracker()
 
         if self.weight < 1:
             raise ValueError('weight should not be less then 1')
@@ -63,6 +108,14 @@ class Server:
         if is_retry:
             self.stat_requests = self.stat_requests - 1 if self.stat_requests > 0 else 0
         self.current_requests = self.current_requests - 1 if self.current_requests > 0 else 0
+
+    def release_adaptive(self, elapsed_time_s, is_server_error):
+        if is_server_error:
+            self.downtime_detector.failed()
+        else:
+            self.downtime_detector.success()
+            elapsed_time_ms = int(elapsed_time_s * 1000)
+            self.response_time_tracker.time(elapsed_time_ms)
 
     def get_stat_load(self, current_servers):
         if self.slow_start_mode_enabled:
@@ -121,6 +174,12 @@ class RetryPolicy:
 
         return idempotent or self.statuses.get(result.status_code)
 
+    def is_server_error(self, result: RequestResult):
+        if isinstance(result.exc, (ClientConnectorError, ServerTimeoutError)):
+            return True
+
+        return result.status_code in self.statuses
+
 
 class UpstreamConfig:
 
@@ -159,14 +218,16 @@ class Upstream:
 
     def __init__(self, name, config_by_profile, servers):
         self.name = name
-        self.servers = []
+        self.servers: List[Server] = []
         self.config_by_profile = config_by_profile if config_by_profile \
             else {Upstream.DEFAULT_PROFILE: self.get_default_config()}
         self._update_servers(servers)
+        self.allow_cross_dc_requests = options.http_client_allow_cross_datacenter_requests
+        self.datacenter: str = options.datacenter
 
     def acquire_server(self, excluded_servers=None):
-        index = BalancingStrategy.get_least_loaded_server(self.servers, excluded_servers, options.datacenter,
-                                                          options.http_client_allow_cross_datacenter_requests)
+        index = BalancingStrategy.get_least_loaded_server(self.servers, excluded_servers, self.datacenter,
+                                                          self.allow_cross_dc_requests)
 
         if index is None:
             return None, None
@@ -175,25 +236,38 @@ class Upstream:
             server.acquire()
             return server.address, server.datacenter
 
-    def release_server(self, host, is_retry=False):
+    def acquire_adaptive_servers(self, profile: str):
+        allowed_servers = []
+        for server in self.servers:
+            if server is not None and (self.allow_cross_dc_requests or self.datacenter == server.datacenter):
+                allowed_servers.append(server)
+
+        chosen_servers = AdaptiveBalancingStrategy.get_servers(allowed_servers, self.get_config(profile).max_tries)
+        return [(server.address, server.datacenter) for server in chosen_servers]
+
+    def release_server(self, host, is_retry, elapsed_time, is_server_error, adaptive=False):
         server = next((server for server in self.servers if server is not None and server.address == host), None)
         if server is not None:
-            server.release(is_retry)
-        self.rescale(self.servers)
+            if adaptive:
+                server.release_adaptive(elapsed_time, is_server_error)
+            else:
+                server.release(is_retry)
 
-    @staticmethod
-    def rescale(servers):
-        rescale = [True, options.http_client_allow_cross_datacenter_requests]
+        if not adaptive:
+            self.rescale(self.servers)
+
+    def rescale(self, servers):
+        rescale = [True, self.allow_cross_dc_requests]
 
         for server in servers:
             if server is not None:
-                local_or_remote = 0 if server.datacenter == options.datacenter else 1
+                local_or_remote = 0 if server.datacenter == self.datacenter else 1
                 rescale[local_or_remote] &= server.need_to_rescale()
 
         if rescale[0] or rescale[1]:
             for server in servers:
                 if server is not None:
-                    local_or_remote = 0 if server.datacenter == options.datacenter else 1
+                    local_or_remote = 0 if server.datacenter == self.datacenter else 1
                     if rescale[local_or_remote]:
                         server.rescale_stats_requests()
 
@@ -201,7 +275,7 @@ class Upstream:
         self.config_by_profile = upstream.config_by_profile
         self._update_servers(upstream.servers)
 
-    def get_config(self, profile):
+    def get_config(self, profile) -> UpstreamConfig:
         if not profile:
             profile = Upstream.DEFAULT_PROFILE
         config = self.config_by_profile.get(profile)
@@ -299,6 +373,52 @@ class BalancingStrategy:
         return min_index
 
 
+class AdaptiveBalancingStrategy:
+    @staticmethod
+    def get_servers(servers: List[Server], max_tries: int) -> List[Server]:
+        n = len(servers)
+        count = min(n, max_tries)
+
+        if n <= 1:
+            return servers
+
+        with_logs = http_client_logger.isEnabledFor(logging.DEBUG)
+
+        # gather statistics
+        is_any_warming_up = False
+        min_mean = 100500
+        max_mean = 0
+        for i, server in enumerate(servers):
+            tracker: ResponseTimeTracker = server.response_time_tracker
+            if with_logs:
+                http_client_logger.debug('gathering stats %s, warm_up: %s, time: %s, successCount: %s', server,
+                                         tracker.is_warm_up, tracker.mean, server.downtime_detector.health)
+
+            if tracker.is_warm_up:
+                is_any_warming_up = True
+            else:
+                mean = tracker.mean
+                if mean < min_mean:
+                    min_mean = mean
+                if mean > max_mean:
+                    max_mean = mean
+
+        # adjust scores based on downtime detector health and response time tracker score
+        scores = []
+        total = 0
+        for i, server in enumerate(servers):
+            time_ms = WARM_UP_DEFAULT_TIME_MILLIS if is_any_warming_up else server.response_time_tracker.mean
+            inverted_time = time_ms if is_any_warming_up else round(min_mean * max_mean / time_ms)
+            score = inverted_time * server.downtime_detector.health
+            if with_logs:
+                http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
+                                         server, server.downtime_detector.health, inverted_time, score)
+            scores.append(score)
+            total += score
+
+        return weighted_sample(servers, scores, count, total)
+
+
 class ImmediateResultOrPreparedRequest:
     def __init__(self, processed_request: RequestBuilder = None, result: RequestResult = None):
         self.result = result
@@ -307,7 +427,7 @@ class ImmediateResultOrPreparedRequest:
 
 class BalancingState:
 
-    def __init__(self, upstream: Upstream, profile):
+    def __init__(self, upstream: Upstream, profile: str):
         self.upstream = upstream
         self.profile = profile
         self.tried_servers = set()
@@ -328,12 +448,45 @@ class BalancingState:
 
     def acquire_server(self):
         host, datacenter = self.upstream.acquire_server(self.tried_servers)
+        self.set_current_server(host, datacenter)
+
+    def set_current_server(self, host, datacenter):
         self.current_host = host
         self.current_datacenter = datacenter
 
-    def release_server(self):
+    def release_server(self, elapsed_time, is_server_error):
         if self.is_server_available():
-            self.upstream.release_server(self.current_host, len(self.tried_servers) > 0)
+            self.upstream.release_server(self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error)
+
+
+class AdaptiveBalancingState(BalancingState):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.adaptive_failed = False
+        self.server_entry_iterator = None
+
+    def acquire_server(self):
+        if not self.adaptive_failed:
+            try:
+                host, datacenter = self.acquire_adaptive_server()
+                self.set_current_server(host, datacenter)
+                return
+            except Exception as exc:
+                http_client_logger.error('failed to acquire adaptive servers, falling back to nonadaptive %s', exc)
+                self.adaptive_failed = True
+        super().acquire_server()
+
+    def release_server(self, elapsed_time, is_server_error):
+        if self.is_server_available():
+            self.upstream.release_server(self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error,
+                                         not self.adaptive_failed)
+
+    def acquire_adaptive_server(self):
+        if self.server_entry_iterator is None:
+            entries = self.upstream.acquire_adaptive_servers(self.profile)
+            self.server_entry_iterator = iter(entries)
+
+        return next(self.server_entry_iterator)
 
 
 class RequestBalancer(RequestEngine):
@@ -403,7 +556,7 @@ class RequestBalancer(RequestEngine):
 
         self._update_left_tries_and_time(result.elapsed_time)
         self.trace[self.request.host] = ResponseData(result.status_code, result.error)
-        self._on_response_received()
+        self._on_response_received(result)
 
         tries_used = self.max_tries - self.tries_left
         retries_count = tries_used - 1
@@ -426,7 +579,7 @@ class RequestBalancer(RequestEngine):
     def _get_result_or_context(self, request: RequestBuilder) -> ImmediateResultOrPreparedRequest:
         raise NotImplementedError
 
-    def _on_response_received(self):
+    def _on_response_received(self, result: RequestResult):
         pass
 
     def _update_left_tries_and_time(self, elapsed_time: float):
@@ -590,8 +743,10 @@ class UpstreamRequestBalancer(RequestBalancer):
 
         return ImmediateResultOrPreparedRequest(processed_request=request)
 
-    def _on_response_received(self):
-        self.state.release_server()
+    def _on_response_received(self, result):
+        upstream_config = self.state.upstream.get_config(self.state.profile)
+        is_server_error = upstream_config.retry_policy.is_server_error(result)
+        self.state.release_server(result.elapsed_time, is_server_error)
 
     def _check_retry(self, response: RequestResult, is_idempotent):
         do_retry = super()._check_retry(response, is_idempotent)
@@ -609,14 +764,17 @@ class RequestBalancerBuilder(RequestEngineBuilder):
         self.kafka_producer = kafka_producer
 
     def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_mode,
-              parse_response, parse_on_error, fail_fast) -> RequestEngine:
+              parse_response, parse_on_error, fail_fast, adaptive) -> RequestEngine:
         upstream = self.upstream_manager.get_upstream(request.host)
         if upstream is None:
             return ExternalUrlRequestor(request, execute_request, modify_http_request_hook, debug_mode,
                                         parse_response, parse_on_error, fail_fast,
                                         self.statsd_client, self.kafka_producer)
         else:
-            state = BalancingState(upstream, profile)
+            if adaptive:
+                state = AdaptiveBalancingState(upstream, profile)
+            else:
+                state = BalancingState(upstream, profile)
             return UpstreamRequestBalancer(state, request, execute_request, modify_http_request_hook, debug_mode,
                                            parse_response, parse_on_error, fail_fast,
                                            self.statsd_client, self.kafka_producer)
