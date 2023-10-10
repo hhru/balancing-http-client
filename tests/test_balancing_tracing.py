@@ -30,11 +30,11 @@ class TestBalancingTracing(TestBase, BalancingClientMixin):
                                                  request_info=None, traces=None, loop=asyncio.get_event_loop(),
                                                  session=None)
                 client_response.status = 200
-                result = RequestResult(test_request, response=client_response, elapsed_time=1)
+                result = RequestResult(test_request, client_response.status, response=client_response, elapsed_time=1)
                 result.parse_response = False
             else:
                 error_message = f'Failed to connect to {test_request.host}'
-                result = RequestResult(test_request, elapsed_time=0.1, exc=ServerTimeoutError(error_message))
+                result = RequestResult(test_request, 599, elapsed_time=0.1, exc=ServerTimeoutError(error_message))
 
             return result
 

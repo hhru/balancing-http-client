@@ -717,7 +717,7 @@ class UpstreamRequestBalancer(RequestBalancer):
     @staticmethod
     def _get_server_not_available_result(request: RequestBuilder, upstream_name) -> RequestResult:
         exc = NoAvailableServerException(f'No available servers for upstream: {upstream_name}')
-        return RequestResult(request, exc=exc, elapsed_time=0)
+        return RequestResult(request, 599, exc=exc, elapsed_time=0)
 
     def __init__(self, state: BalancingState, request: RequestBuilder, execute_request, modify_http_request_hook,
                  debug_mode, parse_response, parse_on_error, fail_fast,

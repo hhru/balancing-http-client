@@ -184,9 +184,10 @@ def make_result_object(request, response_time_s, response_type) -> RequestResult
                                          request_info=None, traces=None, loop=asyncio.get_event_loop(),
                                          session=None)
         client_response.status = response_type
-        result = RequestResult(request, response=client_response, elapsed_time=response_time_s, parse_response=False)
+        result = RequestResult(request, client_response.status, response=client_response, elapsed_time=response_time_s,
+                               parse_response=False)
     else:
         exc = response_type('request failed')
-        result = RequestResult(request, elapsed_time=response_time_s, exc=exc, parse_response=False)
+        result = RequestResult(request, 599, elapsed_time=response_time_s, exc=exc, parse_response=False)
 
     return result
