@@ -16,6 +16,7 @@ from http_client.request_response import (NoAvailableServerException,
 from http_client.util import make_body, make_mfd, to_unicode
 
 client_request_context = contextvars.ContextVar('request')
+response_status_code_context = contextvars.ContextVar('response_status_code')
 
 
 class RequestEngine(metaclass=abc.ABCMeta):
@@ -132,7 +133,7 @@ class AIOHttpClientWrapper:
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_start.append(self._on_request_start)
         trace_config.on_request_end.append(self._on_request_end)
-        trace_config.on_request_exception.append(self._on_request_end)
+        trace_config.on_request_exception.append(self._on_request_exception)
         tcp_connector = aiohttp.TCPConnector(limit=options.max_clients)
         self.client_session = aiohttp.ClientSession(trace_configs=[trace_config], connector=tcp_connector)
 
@@ -154,6 +155,13 @@ class AIOHttpClientWrapper:
     async def _on_request_end(self, session, trace_config_ctx, params):
         elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
         self._elapsed_time.set(elapsed)
+        response_status_code_context.set(params.response.status)
+
+    async def _on_request_exception(self, session, trace_config_ctx, params):
+        elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
+        self._elapsed_time.set(elapsed)
+        if isinstance(params.exception, (ClientError, TimeoutError)):
+            response_status_code_context.set(599)
 
     def close(self):
         pass
@@ -168,7 +176,7 @@ class AIOHttpClientWrapper:
                 tornado_mocks gives tornado.httpclient.HTTPResponse
                 """
                 resp = TornadoResponseWrapper(response)
-                result = RequestResult(request, resp, resp.body, elapsed_time=request.request_timeout)
+                result = RequestResult(request, resp.status, resp, resp.body, elapsed_time=request.request_timeout)
                 future.set_result(result)
             future.set_result(response)
 
@@ -198,10 +206,12 @@ class AIOHttpClientWrapper:
                 )
                 request.start_time = self._start_time.get(0)
                 response_body = await response.read()
-                result = RequestResult(request, response, response_body, elapsed_time=self._elapsed_time.get(0))
+                result = RequestResult(request, response.status, response, response_body,
+                                       elapsed_time=self._elapsed_time.get(0))
 
             except (ClientError, TimeoutError) as exc:
-                result = RequestResult(request, elapsed_time=self._elapsed_time.get(), exc=exc)
+                result = RequestResult(request, response_status_code_context.get(599),
+                                       elapsed_time=self._elapsed_time.get(), exc=exc)
 
             if callback is not None:
                 callback(result)

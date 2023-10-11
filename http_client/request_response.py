@@ -158,12 +158,12 @@ RESPONSE_CONTENT_TYPES = {
 class RequestResult:
     __slots__ = (
         'name', 'request', 'parse_on_error', 'parse_response', '_content_type', '_data',
-        '_data_parse_error', 'exc', 'elapsed_time', '_response', '_response_body'
+        '_data_parse_error', 'exc', 'elapsed_time', '_response', '_response_body', '_status_code'
     )
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
 
-    def __init__(self, request: RequestBuilder, response: Optional[ClientResponse] = None,
+    def __init__(self, request: RequestBuilder, status_code: int, response: Optional[ClientResponse] = None,
                  response_body: Optional[bytes] = None, exc=None, elapsed_time=None,
                  parse_response=True, parse_on_error=False):
         self.name = request.name
@@ -175,6 +175,7 @@ class RequestResult:
         self.parse_response = parse_response
         self.parse_on_error = parse_on_error
 
+        self._status_code = status_code
         self._response: Optional[ClientResponse] = response
         self._response_body: Optional[bytes] = response_body
         self._content_type = None
@@ -214,9 +215,7 @@ class RequestResult:
 
     @property
     def status_code(self):
-        if self._response is not None:
-            return self._response.status
-        return 599
+        return self._status_code
 
     @property
     def error(self) -> Optional[str]:
@@ -298,6 +297,7 @@ class RequestResult:
 
             fake_result = RequestResult(
                 self.request,
+                response.status,
                 response,
                 original_buffer,
                 elapsed_time=self.elapsed_time,
