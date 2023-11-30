@@ -21,6 +21,7 @@ class Options:
     self_node_filter_enabled: bool = False
     node_name: str = ''
     max_clients: int = 100
+    use_orjson: bool = True
 
 
 options = Options()

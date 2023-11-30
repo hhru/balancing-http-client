@@ -1,3 +1,5 @@
+import orjson
+
 try:
     import ujson as json
 except ImportError:
@@ -48,15 +50,47 @@ class FailFastError(Exception):
 
 class RequestBuilder:
     __slots__ = (
-        'host', 'path', 'url', 'name', 'method', 'connect_timeout', 'request_timeout', 'timeout', 'request_time_left',
-        'max_timeout_tries', 'follow_redirects', 'idempotent', 'speculative_timeout_pct', 'body', 'headers',
-        'upstream_name', 'upstream_datacenter', 'proxy', 'session_required', 'request_time_left', 'start_time'
+        'host',
+        'path',
+        'url',
+        'name',
+        'method',
+        'connect_timeout',
+        'request_timeout',
+        'timeout',
+        'request_time_left',
+        'max_timeout_tries',
+        'follow_redirects',
+        'idempotent',
+        'speculative_timeout_pct',
+        'body',
+        'headers',
+        'upstream_name',
+        'upstream_datacenter',
+        'proxy',
+        'session_required',
+        'request_time_left',
+        'start_time',
     )
 
-    def __init__(self, host: str, source_app: str, path: str, name: str,
-                 method='GET', data=None, headers: Optional[LooseHeaders] = None, files=None, content_type=None,
-                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                 speculative_timeout_pct=None, follow_redirects=True, idempotent=True):
+    def __init__(
+        self,
+        host: str,
+        source_app: str,
+        path: str,
+        name: str,
+        method='GET',
+        data=None,
+        headers: Optional[LooseHeaders] = None,
+        files=None,
+        content_type=None,
+        connect_timeout=None,
+        request_timeout=None,
+        max_timeout_tries=None,
+        speculative_timeout_pct=None,
+        follow_redirects=True,
+        idempotent=True,
+    ):
         self.host = host.rstrip('/')
         self.path = path if path.startswith('/') else '/' + path
         self.name = name
@@ -132,8 +166,7 @@ def _parse_response(response_body, real_url, parser, response_type):
             body_preview = 'is None'
 
         http_client_logger.exception(
-            'failed to parse %s response from %s, body %s',
-            response_type, real_url, body_preview
+            'failed to parse %s response from %s, body %s', response_type, real_url, body_preview
         )
 
         return DataParseError(reason=f'invalid {response_type}')
@@ -144,7 +177,14 @@ _parse_response_xml = partial(
     _parse_response, parser=lambda body: etree.fromstring(body, parser=_xml_parser), response_type='xml'
 )
 
-_parse_response_json = partial(_parse_response, parser=json.loads, response_type='json')
+
+def loads_json(response_body):
+    if options.use_orjson:
+        return orjson.loads(response_body)
+    return json.loads(response_body)
+
+
+_parse_response_json = partial(_parse_response, parser=loads_json, response_type='json')
 
 _parse_response_text = partial(_parse_response, parser=to_unicode, response_type='text')
 
@@ -157,15 +197,33 @@ RESPONSE_CONTENT_TYPES = {
 
 class RequestResult:
     __slots__ = (
-        'name', 'request', 'parse_on_error', 'parse_response', '_content_type', '_data',
-        '_data_parse_error', 'exc', 'elapsed_time', '_response', '_response_body', '_status_code'
+        'name',
+        'request',
+        'parse_on_error',
+        'parse_response',
+        '_content_type',
+        '_data',
+        '_data_parse_error',
+        'exc',
+        'elapsed_time',
+        '_response',
+        '_response_body',
+        '_status_code',
     )
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
 
-    def __init__(self, request: RequestBuilder, status_code: int, response: Optional[ClientResponse] = None,
-                 response_body: Optional[bytes] = None, exc=None, elapsed_time=None,
-                 parse_response=True, parse_on_error=False):
+    def __init__(
+        self,
+        request: RequestBuilder,
+        status_code: int,
+        response: Optional[ClientResponse] = None,
+        response_body: Optional[bytes] = None,
+        exc=None,
+        elapsed_time=None,
+        parse_response=True,
+        parse_on_error=False,
+    ):
         self.name = request.name
         self.request = request
 
@@ -178,7 +236,7 @@ class RequestResult:
         self._status_code = status_code
         self._response: Optional[ClientResponse] = response
         self._response_body: Optional[bytes] = response_body
-        self._content_type = None
+        self._content_type: str | None = None
         self._data = None
         self._data_parse_error: Optional[DataParseError] = None
 
@@ -253,9 +311,7 @@ class RequestResult:
         self._parse_data()
 
         if isinstance(self._data_parse_error, DataParseError):
-            return {
-                'error': {k: v for k, v in self._data_parse_error.attrs.items()}
-            }
+            return {'error': {k: v for k, v in self._data_parse_error.attrs.items()}}
 
         return self.data if self._content_type == 'json' else None
 
@@ -288,10 +344,17 @@ class RequestResult:
             if response_info_headers:
                 headers.update(response_info_headers)
 
-            response = ClientResponse(self._response.method, self._response.url, writer=self._response._writer,
-                                      continue100=self._response._continue, timer=self._response._timer,
-                                      request_info=self._response.request_info, traces=self._response._traces,
-                                      loop=self._response._loop, session=self._response._session)
+            response = ClientResponse(
+                self._response.method,
+                self._response.url,
+                writer=self._response._writer,
+                continue100=self._response._continue,
+                timer=self._response._timer,
+                request_info=self._response.request_info,
+                traces=self._response._traces,
+                loop=self._response._loop,
+                session=self._response._session,
+            )
             response._headers = headers
             response.status = int(response_info.get('code', 599))
 
@@ -302,7 +365,7 @@ class RequestResult:
                 original_buffer,
                 elapsed_time=self.elapsed_time,
                 parse_response=self.parse_response,
-                parse_on_error=self.parse_on_error
+                parse_on_error=self.parse_on_error,
             )
 
             return debug_response, fake_result
@@ -318,6 +381,7 @@ class TornadoResponseWrapper:
     ----------
     resp : tornado.httpclient.HTTPResponse
     """
+
     def __init__(self, resp):
         self.resp = resp
 
