@@ -1,4 +1,5 @@
 import mimetypes
+from typing import Any
 from urllib.parse import urlencode
 from uuid import uuid4
 import random
@@ -6,7 +7,7 @@ import random
 from http_client.options import options
 
 
-def to_unicode(value: None | str | bytes) -> str:
+def to_unicode(value: Any) -> str:
     if isinstance(value, (str, type(None))):
         return value
     if not isinstance(value, bytes):
