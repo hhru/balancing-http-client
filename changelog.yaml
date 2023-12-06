@@ -1,3 +1,9 @@
+-   name: 2.1.6
+    date: '2023-12-06T15:59:12.553120+03:00'
+    description: Понизить версию питона в balancing-http-client до 3.9
+    instructions: ''
+    compatible: true
+
 -   name: 2.1.5
     date: '2023-12-01T09:41:41.299393+03:00'
     description: Начали использовать orjson для десереализации json
