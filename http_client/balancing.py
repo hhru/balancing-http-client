@@ -16,7 +16,7 @@ from http_client.options import options
 from http_client.request_response import (FailFastError,
                                           NoAvailableServerException,
                                           ResponseData)
-from http_client.util import utf8, weighted_sample
+from http_client.util import utf8, weighted_sample, remove_query
 
 
 DOWNTIME_DETECTOR_WINDOW = 100
@@ -502,7 +502,7 @@ class RequestBalancer(RequestEngine):
         request.request_timeout *= options.timeout_multiplier
         request.timeout = aiohttp.ClientTimeout(total=request.request_timeout, connect=request.connect_timeout)
 
-        self.request = request
+        self.request: RequestBuilder = request
         self.execute_request = execute_request
         self.modify_http_request_hook = modify_http_request_hook
 
@@ -626,22 +626,25 @@ class RequestBalancer(RequestEngine):
         body_bytes = result.get_body_length()
         size = f' {body_bytes} bytes' if body_bytes is not None else ''
         is_server_error = result.exc is not None or result.status_code >= 500
-        request = self.request
+        log_level = logging.WARNING
         if do_retry:
-            effective_url = request.url if result.exc is not None else result._response.real_url
+            url = self.request.url if result.exc is not None else str(result._response.real_url)
+            if not options.log_request_query_string:
+                url = remove_query(url)
             retry = f' on retry {retries_count}' if retries_count > 0 else ''
-            log_message = f'balanced_request_response: {result.status_code} got {size}{retry}, will retry ' \
-                          f'{request.method} {effective_url} in {result.elapsed_time * 1000:.2f}ms'
-            log_method = http_client_logger.info if is_server_error else http_client_logger.debug
+            log_message = f'response: {result.status_code} got {size}{retry}, will retry ' \
+                          f'{self.request.method} {url} in {result.elapsed_time * 1000:.2f}ms'
+            if not is_server_error:
+                log_level = logging.DEBUG
         else:
-            msg_label = 'balanced_request_final_error' if is_server_error else 'balanced_request_final_response'
-            log_message = f'{msg_label}: {result.status_code} got {size} ' \
-                          f'{request.method} ' \
-                          f'{request.url}, ' \
-                          f'trace: {self.get_trace()}'
+            url = self.request.url if options.log_request_query_string else remove_query(self.request.url)
+            msg_label = 'final_error' if is_server_error else 'final_response'
+            log_message = f'{msg_label}: {result.status_code} got {size} {self.request.method} {url}'
 
-            log_method = http_client_logger.warning if is_server_error else http_client_logger.info
-        log_method(log_message, extra=debug_extra)
+            if not is_server_error and retries_count == 0:
+                log_level = logging.getLevelName(options.balancing_requests_log_level.upper())
+
+        http_client_logger.log(log_level, log_message, extra=debug_extra)
 
     def _send_response_metrics(self, result, tries_used, do_retry):
         request = self.request

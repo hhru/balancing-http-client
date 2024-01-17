@@ -92,7 +92,7 @@ class RequestBuilder:
         idempotent=True,
     ):
         self.host = host.rstrip('/')
-        self.path = path if path.startswith('/') else '/' + path
+        self.path: str = path if path.startswith('/') else '/' + path
         self.name = name
         self.method = method
         self.connect_timeout = connect_timeout
