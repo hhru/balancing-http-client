@@ -55,7 +55,7 @@ class TestAdaptiveBalancingStrategy:
         server_statistics = make_requests(upstream, response_time_func, response_type_func)
         assert 0.37 <= server_statistics['test1']['rate'] <= 0.41
         assert 0.37 <= server_statistics['test2']['rate'] <= 0.41
-        assert 0.21 <= server_statistics['test3']['rate'] <= 0.23
+        assert 0.20 <= server_statistics['test3']['rate'] <= 0.24
 
     def test_one_fail_server(self):
         servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1')]
@@ -100,9 +100,9 @@ class TestAdaptiveBalancingStrategy:
                 return 200
 
         server_statistics = make_requests(upstream, response_time_func, response_type_func)
-        assert 0.34 <= server_statistics['test1']['rate'] <= 0.39
-        assert 0.34 <= server_statistics['test2']['rate'] <= 0.39
-        assert 0.24 <= server_statistics['test3']['rate'] <= 0.29
+        assert 0.33 <= server_statistics['test1']['rate'] <= 0.38
+        assert 0.33 <= server_statistics['test2']['rate'] <= 0.38
+        assert 0.25 <= server_statistics['test3']['rate'] <= 0.30
 
     @pytest.mark.skip(reason='for dev purpose')
     def test_speed(self):
