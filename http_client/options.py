@@ -23,7 +23,7 @@ class Options:
     max_clients: int = 100
     use_orjson: bool = True
     balancing_requests_log_level: str = 'debug'
-    log_request_query_string: bool = False
+    log_request_query_string: bool = True
 
 
 options = Options()
