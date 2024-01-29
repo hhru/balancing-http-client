@@ -22,6 +22,7 @@ class Options:
     node_name: str = ''
     max_clients: int = 100
     use_orjson: bool = True
+    log_level: str = 'info'
     balancing_requests_log_level: str = 'debug'
     log_request_query_string: bool = True
 

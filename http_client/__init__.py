@@ -4,6 +4,7 @@ import contextvars
 from asyncio import Future, TimeoutError
 import time
 from typing import Callable
+import logging
 
 import aiohttp
 import yarl
@@ -17,6 +18,7 @@ from http_client.util import make_body, make_mfd, to_unicode
 
 client_request_context = contextvars.ContextVar('request')
 response_status_code_context = contextvars.ContextVar('response_status_code')
+http_client_logger = logging.getLogger('http_client')
 
 
 class RequestEngine(metaclass=abc.ABCMeta):
@@ -227,6 +229,7 @@ class HttpClientFactory:
         self.http_client = http_client
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
+        http_client_logger.setLevel(options.log_level.upper())
 
     def get_http_client(self, modify_http_request_hook=None, debug_mode=False, adaptive=False) -> HttpClient:
         return HttpClient(
