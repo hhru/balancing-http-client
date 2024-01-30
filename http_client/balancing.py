@@ -16,7 +16,7 @@ from http_client.options import options
 from http_client.request_response import (FailFastError,
                                           NoAvailableServerException,
                                           ResponseData)
-from http_client.util import utf8, weighted_sample, remove_query
+from http_client.util import utf8, weighted_sample
 
 
 DOWNTIME_DETECTOR_WINDOW = 100
@@ -382,15 +382,13 @@ class AdaptiveBalancingStrategy:
         if n <= 1:
             return servers
 
-        with_logs = http_client_logger.isEnabledFor(logging.DEBUG)
-
         # gather statistics
         is_any_warming_up = False
         min_mean = 100500
         max_mean = 0
         for i, server in enumerate(servers):
             tracker: ResponseTimeTracker = server.response_time_tracker
-            if with_logs:
+            if options.log_adaptive_statistics:
                 http_client_logger.debug('gathering stats %s, warm_up: %s, time: %s, successCount: %s', server,
                                          tracker.is_warm_up, tracker.mean, server.downtime_detector.health)
 
@@ -410,7 +408,7 @@ class AdaptiveBalancingStrategy:
             time_ms = WARM_UP_DEFAULT_TIME_MILLIS if is_any_warming_up else server.response_time_tracker.mean
             inverted_time = time_ms if is_any_warming_up else round(min_mean * max_mean / time_ms)
             score = inverted_time * server.downtime_detector.health
-            if with_logs:
+            if options.log_adaptive_statistics:
                 http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
                                          server, server.downtime_detector.health, inverted_time, score)
             scores.append(score)
@@ -629,15 +627,13 @@ class RequestBalancer(RequestEngine):
         log_level = logging.WARNING
         if do_retry:
             url = self.request.url if result.exc is not None else str(result._response.real_url)
-            if not options.log_request_query_string:
-                url = remove_query(url)
             retry = f' on retry {retries_count}' if retries_count > 0 else ''
             log_message = f'response: {result.status_code} got {size}{retry}, will retry ' \
                           f'{self.request.method} {url} in {result.elapsed_time * 1000:.2f}ms'
             if not is_server_error:
                 log_level = logging.DEBUG
         else:
-            url = self.request.url if options.log_request_query_string else remove_query(self.request.url)
+            url = self.request.url
             msg_label = 'final_error' if is_server_error else 'final_response'
             log_message = f'{msg_label}: {result.status_code} got {size} {self.request.method} {url}'
 
