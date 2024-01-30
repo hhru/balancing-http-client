@@ -180,7 +180,3 @@ def weighted_sample(elems: list, weights: list, k: int, sum_weight: int) -> list
         n -= 1
 
     return result
-
-
-def remove_query(url_str: str) -> str:
-    return url_str[:url_str.find('?')]
