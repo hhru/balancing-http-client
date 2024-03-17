@@ -1,8 +1,7 @@
 import socket
 
 from http_client import AIOHttpClientWrapper, HttpClientFactory, options
-from http_client.balancing import (RequestBalancerBuilder, Server, Upstream,
-                                   UpstreamConfig, UpstreamManager)
+from http_client.balancing import RequestBalancerBuilder, Server, Upstream, UpstreamConfig
 from pytest_httpserver import HTTPServer
 
 
@@ -20,8 +19,7 @@ class TestBase:
 
 class BalancingClientMixin:
     def setup_method(self, working_server: HTTPServer):
-        self.upstream_manager = UpstreamManager()
-        self.request_balancer_builder = RequestBalancerBuilder(self.upstream_manager)
+        self.request_balancer_builder = RequestBalancerBuilder({})
         self.http_client_factory = HttpClientFactory('testapp', AIOHttpClientWrapper(), self.request_balancer_builder)
         self.balancing_client = self.http_client_factory.get_http_client()
         options.datacenter = 'test'
@@ -37,4 +35,4 @@ class BalancingClientMixin:
         self.servers = [Server(f'127.0.0.1:{port}', dc='test') for port in ports]
         upstream = Upstream('test', self.get_upstream_config(),
                             self.servers)
-        self.upstream_manager.upstreams[upstream.name] = upstream
+        self.request_balancer_builder._upstreams[upstream.name] = upstream

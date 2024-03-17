@@ -319,35 +319,6 @@ class Upstream:
         return '[{}]'.format(','.join(server.address for server in self.servers if server is not None))
 
 
-class UpstreamManager:
-    def __init__(self, upstreams=None):
-        if isinstance(upstreams, dict):
-            self.upstreams = upstreams
-        elif isinstance(upstreams, list):
-            self.upstreams = {upstream.name: upstream for upstream in upstreams}
-        else:
-            self.upstreams = {}
-
-    def update_upstreams(self, upstreams):
-        for upstream in upstreams:
-            self.update_upstream(upstream)
-
-    def update_upstream(self, upstream):
-        current_upstream = self.upstreams.get(upstream.name)
-
-        if current_upstream is None:
-            shuffle(upstream.servers)
-            self.upstreams[upstream.name] = upstream
-            http_client_logger.debug('add %s upstream: %s', upstream.name, str(upstream))
-            return
-
-        current_upstream.update(upstream)
-        http_client_logger.debug('update %s upstream: %s', upstream.name, str(upstream))
-
-    def get_upstream(self, name):
-        return self.upstreams.get(name)
-
-
 class BalancingStrategy:
     @staticmethod
     def get_least_loaded_server(servers, excluded_servers, current_datacenter, allow_cross_dc_requests):
@@ -757,14 +728,14 @@ class UpstreamRequestBalancer(RequestBalancer):
 
 class RequestBalancerBuilder(RequestEngineBuilder):
 
-    def __init__(self, upstream_manager: UpstreamManager, statsd_client=None, kafka_producer=None):
-        self.upstream_manager = upstream_manager
+    def __init__(self, upstreams: dict[str, Upstream], statsd_client=None, kafka_producer=None):
+        self._upstreams = upstreams
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
     def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_mode,
               parse_response, parse_on_error, fail_fast, adaptive) -> RequestEngine:
-        upstream = self.upstream_manager.get_upstream(request.host)
+        upstream = self._upstreams.get(request.host)
         if upstream is None:
             return ExternalUrlRequestor(request, execute_request, modify_http_request_hook, debug_mode,
                                         parse_response, parse_on_error, fail_fast,
