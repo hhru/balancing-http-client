@@ -1,7 +1,7 @@
 import abc
 import asyncio
 import contextvars
-from asyncio import Future, TimeoutError
+from asyncio import Future, TimeoutError, Task
 import time
 from typing import Callable
 
@@ -21,7 +21,7 @@ response_status_code_context = contextvars.ContextVar('response_status_code')
 
 class RequestEngine(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def execute(self) -> Future[RequestResult]:
+    def execute(self) -> Task[RequestResult]:
         raise NotImplementedError
 
 
@@ -44,8 +44,8 @@ class HttpClient:
 
     def get_url(self, host, path, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                parse_response=True, parse_on_error=False, fail_fast=False,
-                speculative_timeout_pct=None) -> Future[RequestResult]:
+                parse_response=True, parse_on_error=True, fail_fast=False,
+                speculative_timeout_pct=None) -> Task[RequestResult]:
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'GET', data, headers, None, None,
@@ -59,7 +59,7 @@ class HttpClient:
 
     def head_url(self, host, path, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                 fail_fast=False, speculative_timeout_pct=None) -> Future[RequestResult]:
+                 fail_fast=False, speculative_timeout_pct=None) -> Task[RequestResult]:
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'HEAD', data, headers, None, None,
@@ -74,8 +74,8 @@ class HttpClient:
     def post_url(self, host, path, *,
                  name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
-                 parse_response=True, parse_on_error=False, fail_fast=False,
-                 speculative_timeout_pct=None) -> Future[RequestResult]:
+                 parse_response=True, parse_on_error=True, fail_fast=False,
+                 speculative_timeout_pct=None) -> Task[RequestResult]:
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'POST', data, headers, files, content_type,
@@ -89,8 +89,8 @@ class HttpClient:
 
     def put_url(self, host, path, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
                 profile=None, connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
-                parse_response=True, parse_on_error=False, fail_fast=False,
-                speculative_timeout_pct=None) -> Future[RequestResult]:
+                parse_response=True, parse_on_error=True, fail_fast=False,
+                speculative_timeout_pct=None) -> Task[RequestResult]:
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'PUT', data, headers, None, content_type,
@@ -104,8 +104,8 @@ class HttpClient:
 
     def delete_url(self, host, path, *, name=None, data=None, headers=None, content_type=None, profile=None,
                    connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                   parse_response=True, parse_on_error=False, fail_fast=False,
-                   speculative_timeout_pct=None) -> Future[RequestResult]:
+                   parse_response=True, parse_on_error=True, fail_fast=False,
+                   speculative_timeout_pct=None) -> Task[RequestResult]:
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'DELETE', data, headers, None, content_type,
@@ -117,8 +117,8 @@ class HttpClient:
                                                            parse_response, parse_on_error, fail_fast, self.adaptive)
         return request_engine.execute()
 
-    def execute_request(self, request: RequestBuilder) -> Future[RequestResult]:
-        return self.http_client_impl.fetch(request)
+    async def execute_request(self, request: RequestBuilder) -> RequestResult:
+        return await self.http_client_impl.fetch(request)
 
 
 class AIOHttpClientWrapper:
@@ -166,60 +166,28 @@ class AIOHttpClientWrapper:
     def close(self):
         pass
 
-    def fetch(self, request: RequestBuilder, raise_error=True, **kwargs) -> Future[RequestResult]:
-        future = Future()
+    async def fetch(self, request: RequestBuilder, raise_error=True, **kwargs) -> RequestResult:
+        client_request_context.set(request)
+        try:
+            response = await self.client_session.request(
+                method=request.method,
+                url=request.url,
+                headers=request.headers,
+                data=request.body,
+                allow_redirects=request.follow_redirects,
+                timeout=request.timeout,
+                proxy=request.proxy,
+            )
+            request.start_time = self._start_time.get(0)
+            response_body = await response.read()
+            result = RequestResult(request, response.status, response, response_body,
+                                   elapsed_time=self._elapsed_time.get(0))
 
-        def handle_response(response) -> None:
-            if not isinstance(response, RequestResult):
-                """
-                only for testing
-                tornado_mocks gives tornado.httpclient.HTTPResponse
-                """
-                resp = TornadoResponseWrapper(response)
-                result = RequestResult(request, resp.status, resp, resp.body, elapsed_time=request.request_timeout)
-                future.set_result(result)
-            future.set_result(response)
+        except (ClientError, TimeoutError) as exc:
+            result = RequestResult(request, response_status_code_context.get(599),
+                                   elapsed_time=self._elapsed_time.get(), exc=exc)
 
-        if isinstance(request, str):
-            """
-            only for testing
-            """
-            url = yarl.URL(request)
-            host = f'{url.host}:{url.port}'
-            path = url.raw_path_qs
-            request = RequestBuilder(host, 'test', path, 'test_request', **kwargs)
-        self.fetch_impl(request, handle_response)
-        return future
-
-    def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
-        async def real_fetch():
-            client_request_context.set(request)
-            try:
-                response = await self.client_session.request(
-                    method=request.method,
-                    url=request.url,
-                    headers=request.headers,
-                    data=request.body,
-                    allow_redirects=request.follow_redirects,
-                    timeout=request.timeout,
-                    proxy=request.proxy,
-                )
-                request.start_time = self._start_time.get(0)
-                response_body = await response.read()
-                result = RequestResult(request, response.status, response, response_body,
-                                       elapsed_time=self._elapsed_time.get(0))
-
-            except (ClientError, TimeoutError) as exc:
-                result = RequestResult(request, response_status_code_context.get(599),
-                                       elapsed_time=self._elapsed_time.get(), exc=exc)
-
-            if callback is not None:
-                callback(result)
-
-            return result
-
-        task = asyncio.create_task(real_fetch())
-        return task
+        return result
 
 
 class HttpClientFactory:

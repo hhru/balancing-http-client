@@ -2,7 +2,7 @@ import asyncio
 import collections
 import logging
 import time
-from asyncio import Future
+from asyncio import Future, Task
 from collections import OrderedDict
 from random import random, shuffle
 from typing import List
@@ -501,7 +501,7 @@ class RequestBalancer(RequestEngine):
         if self._check_speculative_retry():
             return await self._retryable_fetch()
 
-    def execute(self) -> Future[RequestResult]:
+    def execute(self) -> Task[RequestResult]:
         if callable(self.modify_http_request_hook):
             self.modify_http_request_hook(self.request)
 
