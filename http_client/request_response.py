@@ -67,6 +67,7 @@ class RequestBuilder:
         'headers',
         'upstream_name',
         'upstream_datacenter',
+        'upstream_hostname',
         'proxy',
         'session_required',
         'request_time_left',
@@ -133,6 +134,7 @@ class RequestBuilder:
 
         self.upstream_name = self.host
         self.upstream_datacenter = None
+        self.upstream_hostname = None
 
         self.proxy = None
         if options.http_proxy_host is not None:

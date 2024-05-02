@@ -68,8 +68,9 @@ class Server:
     def calculate_max_real_stat_load(servers):
         return max(server.calculate_load() for server in servers if server is not None)
 
-    def __init__(self, address, weight=1, dc=None):
+    def __init__(self, address, hostname, weight=1, dc=None):
         self.address = address.rstrip('/')
+        self.hostname: str = hostname
         self.weight = int(weight)
         self.datacenter: str = dc
 
@@ -230,11 +231,11 @@ class Upstream:
                                                           self.allow_cross_dc_requests)
 
         if index is None:
-            return None, None
+            return None, None, None
         else:
             server = self.servers[index]
             server.acquire()
-            return server.address, server.datacenter
+            return server.address, server.datacenter, server.hostname
 
     def acquire_adaptive_servers(self, profile: str):
         allowed_servers = []
@@ -243,7 +244,7 @@ class Upstream:
                 allowed_servers.append(server)
 
         chosen_servers = AdaptiveBalancingStrategy.get_servers(allowed_servers, self.get_config(profile).max_tries)
-        return [(server.address, server.datacenter) for server in chosen_servers]
+        return [(server.address, server.datacenter, server.hostname) for server in chosen_servers]
 
     def release_server(self, host, is_retry, elapsed_time, is_server_error, adaptive=False):
         server = next((server for server in self.servers if server is not None and server.address == host), None)
@@ -401,6 +402,7 @@ class BalancingState:
         self.profile = profile
         self.tried_servers = set()
         self.current_host = None
+        self.current_hostname = None
         self.current_datacenter = None
 
     def get_upstream_config(self):
@@ -416,12 +418,13 @@ class BalancingState:
             self.current_datacenter = None
 
     def acquire_server(self):
-        host, datacenter = self.upstream.acquire_server(self.tried_servers)
-        self.set_current_server(host, datacenter)
+        host, datacenter, hostname = self.upstream.acquire_server(self.tried_servers)
+        self.set_current_server(host, datacenter, hostname)
 
-    def set_current_server(self, host, datacenter):
+    def set_current_server(self, host, datacenter, hostname):
         self.current_host = host
         self.current_datacenter = datacenter
+        self.current_hostname = hostname
 
     def release_server(self, elapsed_time, is_server_error):
         if self.is_server_available():
@@ -437,8 +440,8 @@ class AdaptiveBalancingState(BalancingState):
     def acquire_server(self):
         if not self.adaptive_failed:
             try:
-                host, datacenter = self.acquire_adaptive_server()
-                self.set_current_server(host, datacenter)
+                host, datacenter, hostname = self.acquire_adaptive_server()
+                self.set_current_server(host, datacenter, hostname)
                 return
             except Exception as exc:
                 http_client_logger.error('failed to acquire adaptive servers, falling back to nonadaptive %s', exc)
@@ -710,6 +713,7 @@ class UpstreamRequestBalancer(RequestBalancer):
         request.host = self.state.current_host
         request.url = f'http://{self.state.current_host}{self.request.path}'
         request.upstream_datacenter = self.state.current_datacenter
+        request.upstream_hostname = self.state.current_hostname
 
         return ImmediateResultOrPreparedRequest(processed_request=request)
 
