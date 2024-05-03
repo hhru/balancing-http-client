@@ -69,7 +69,7 @@ class TestHttpClientBalancer:
     def test_dest_host(self):
         upstream = self._upstream([Server('2', "dest_host_1", 1, dc='test')])
 
-        address, dc_result, dest_host_result  = upstream.acquire_server()
+        address, dc_result, dest_host_result = upstream.acquire_server()
         assert address == '2'
         assert dc_result == 'test'
         assert dest_host_result == 'dest_host_1'
