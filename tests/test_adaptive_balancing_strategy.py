@@ -12,18 +12,21 @@ import pytest
 
 class TestAdaptiveBalancingStrategy:
     def test_should_pick_less_than_all(self):
-        servers = [Server("test1", 1, None), Server("test2", 1, None), Server("test3", 1, None)]
+        servers = [Server("test1", "destHost", 1, None), Server("test2", "destHost", 1, None),
+                   Server("test3", "destHost", 1, None)]
         retries_count = 2
         balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, retries_count)
         assert len(balanced_servers) == retries_count
 
     def test_should_pick_different(self):
-        servers = [Server("test1", 1, None), Server("test2", 1, None), Server("test3", 1, None)]
+        servers = [Server("test1", "destHost", 1, None), Server("test2", "destHost", 1, None),
+                   Server("test3", "destHost", 1, None)]
         balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, len(servers))
         assert ['test1', 'test2', 'test3'] == sorted(list(map(lambda s: s.address, balanced_servers)))
 
     def test_same_load(self):
-        servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1')]
+        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
+                   Server('test3', "destHost", 1, 'dc1')]
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -39,7 +42,8 @@ class TestAdaptiveBalancingStrategy:
         assert 0.31 <= server_statistics['test3']['rate'] <= 0.35
 
     def test_one_slow_server(self):
-        servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1')]
+        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
+                   Server('test3', "destHost", 1, 'dc1')]
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -58,7 +62,8 @@ class TestAdaptiveBalancingStrategy:
         assert 0.20 <= server_statistics['test3']['rate'] <= 0.24
 
     def test_one_fail_server(self):
-        servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1')]
+        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
+                   Server('test3', "destHost", 1, 'dc1')]
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -77,7 +82,8 @@ class TestAdaptiveBalancingStrategy:
         assert 0.0 <= server_statistics['test3']['rate'] <= 0.01
 
     def test_one_restarted_server(self):
-        servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1')]
+        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
+                   Server('test3', "destHost", 1, 'dc1')]
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -106,9 +112,11 @@ class TestAdaptiveBalancingStrategy:
 
     @pytest.mark.skip(reason='for dev purpose')
     def test_speed(self):
-        servers = [Server('test1', 1, 'dc1'), Server('test2', 1, 'dc1'), Server('test3', 1, 'dc1'),
-                   Server('test4', 1, 'dc1'), Server('test5', 1, 'dc1'), Server('test6', 1, 'dc1'),
-                   Server('test7', 1, 'dc1')]
+        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
+                   Server('test3', "destHost", 1, 'dc1'),
+                   Server('test4', "destHost", 1, 'dc1'), Server('test5', "destHost", 1, 'dc1'),
+                   Server('test6', "destHost", 1, 'dc1'),
+                   Server('test7', "destHost", 1, 'dc1')]
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
         servers_hits = {server.address: {'ok': 0, 'fail': 0} for server in upstream.servers}

@@ -32,7 +32,7 @@ class BalancingClientMixin:
         }
 
     def register_ports_for_upstream(self, *ports):
-        self.servers = [Server(f'127.0.0.1:{port}', dc='test') for port in ports]
+        self.servers = [Server(f'127.0.0.1:{port}', hostname='destHost', dc='test') for port in ports]
         upstream = Upstream('test', self.get_upstream_config(),
                             self.servers)
         self.request_balancer_builder._upstreams[upstream.name] = upstream

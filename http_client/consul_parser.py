@@ -27,6 +27,7 @@ def parse_consul_health_servers_data(values):
             continue
         servers.append(Server(
             address=service_config['Address'],
+            hostname=node_name,
             weight=service_config['Weight'],
             dc=dc
         ))

@@ -21,7 +21,7 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
     for commands in timeline:
         for (index, acquire) in commands:
             if acquire:
-                address, _ = upstream.acquire_server()
+                address, _, dest_host = upstream.acquire_server()
                 address_index = next((i for i, server in enumerate(upstream.servers)
                                       if server.address == address), None)
                 done[address_index] = done[address_index] + 1
@@ -33,7 +33,8 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
 
 
 def _upstream(weights):
-    return Upstream('upstream', {}, [Server(str(weight), weight, dc='test') for weight in weights])
+    return Upstream('upstream', {},
+                    [Server(str(weight), hostname='dest_host', weight=weight, dc='test') for weight in weights])
 
 
 class TestHttpError:
