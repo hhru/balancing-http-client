@@ -166,7 +166,7 @@ class AIOHttpClientWrapper:
     def close(self):
         pass
 
-    def fetch(self, request: RequestBuilder, raise_error=True, **kwargs) -> Future[RequestResult]:
+    def fetch(self, request: RequestBuilder, **kwargs) -> Future[RequestResult]:
         future = Future()
 
         def handle_response(response) -> None:
@@ -178,7 +178,8 @@ class AIOHttpClientWrapper:
                 resp = TornadoResponseWrapper(response)
                 result = RequestResult(request, resp.status, resp, resp.body, elapsed_time=request.request_timeout)
                 future.set_result(result)
-            future.set_result(response)
+            else:
+                future.set_result(response)
 
         if isinstance(request, str):
             """
@@ -211,7 +212,7 @@ class AIOHttpClientWrapper:
 
             except (ClientError, TimeoutError) as exc:
                 result = RequestResult(request, response_status_code_context.get(599),
-                                       elapsed_time=self._elapsed_time.get(), exc=exc)
+                                       elapsed_time=self._elapsed_time.get(0), exc=exc)
 
             if callback is not None:
                 callback(result)
