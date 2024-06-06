@@ -128,8 +128,6 @@ class AIOHttpClientWrapper:
     while we heavily dependent on tornado_mocks, we must abide tornado client interface
     """
     def __init__(self):
-        self._elapsed_time = contextvars.ContextVar('elapsed_time')
-        self._start_time = contextvars.ContextVar('start_time')
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_start.append(self._on_request_start)
         trace_config.on_request_end.append(self._on_request_end)
@@ -149,19 +147,20 @@ class AIOHttpClientWrapper:
         self.io_loop = IoLoopTestWrapper()
 
     async def _on_request_start(self, session, trace_config_ctx, params):
-        self._start_time.set(time.time())
         trace_config_ctx.start = asyncio.get_event_loop().time()
 
     async def _on_request_end(self, session, trace_config_ctx, params):
         elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
-        self._elapsed_time.set(elapsed)
-        response_status_code_context.set(params.response.status)
+        params.response._elapsed_time = elapsed
+        params.response._request_start_time = trace_config_ctx.start
+        params.response._status_code = params.response.status
 
     async def _on_request_exception(self, session, trace_config_ctx, params):
         elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
-        self._elapsed_time.set(elapsed)
+        params.exception._elapsed_time = elapsed
+        params.exception._request_start_time = trace_config_ctx.start
         if isinstance(params.exception, (ClientError, TimeoutError)):
-            response_status_code_context.set(599)
+            params.exception._status_code = 599
 
     def close(self):
         pass
@@ -194,9 +193,11 @@ class AIOHttpClientWrapper:
 
     def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
         async def real_fetch():
-            client_request_context.set(request)
+            token = client_request_context.set(request)
+            status = None
+            elapsed_time = None
             try:
-                response = await self.client_session.request(
+                response: aiohttp.ClientResponse = await self.client_session.request(
                     method=request.method,
                     url=request.url,
                     headers=request.headers,
@@ -205,14 +206,21 @@ class AIOHttpClientWrapper:
                     timeout=request.timeout,
                     proxy=request.proxy,
                 )
-                request.start_time = self._start_time.get(0)
+                request.start_time = getattr(response, '_request_start_time', None)
+                elapsed_time = getattr(response, '_elapsed_time', 0)
+                status = response.status
                 response_body = await response.read()
-                result = RequestResult(request, response.status, response, response_body,
-                                       elapsed_time=self._elapsed_time.get(0))
+
+                result = RequestResult(request, status, response, response_body, elapsed_time=elapsed_time)
 
             except (ClientError, TimeoutError) as exc:
-                result = RequestResult(request, response_status_code_context.get(599),
-                                       elapsed_time=self._elapsed_time.get(0), exc=exc)
+                request.start_time = getattr(exc, '_request_start_time', None)
+                elapsed_time = getattr(exc, '_elapsed_time', 0)
+
+                result = RequestResult(request, status or getattr(exc, '_status_code', 599), elapsed_time=elapsed_time, exc=exc)
+
+            finally:
+                client_request_context.reset(token)
 
             if callback is not None:
                 callback(result)
