@@ -10,7 +10,7 @@ authors = ['architecture <arch-team@hh.ru>']
 
 [tool.poetry.dependencies]
 python = '~=3.9'
-aiohttp = '3.8.3'
+aiohttp = '>=3.8.3, <4.0.0'
 lxml = '4.9.2'
 yarl = '1.9.2'
 orjson = '*'
