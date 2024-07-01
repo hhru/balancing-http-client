@@ -27,20 +27,19 @@ class RequestEngine(metaclass=abc.ABCMeta):
 
 class RequestEngineBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_mode,
-              parse_response, parse_on_error, fail_fast, adaptive) -> RequestEngine:
+    def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_enabled,
+              parse_response, parse_on_error, fail_fast) -> RequestEngine:
         raise NotImplementedError
 
 
 class HttpClient:
     def __init__(self, http_client_impl, source_app, request_engine_builder: RequestEngineBuilder, *,
-                 modify_http_request_hook=None, debug_mode=False, adaptive=False):
+                 modify_http_request_hook=None, debug_enabled=False):
         self.http_client_impl = http_client_impl
         self.source_app = source_app
-        self.debug_mode = debug_mode
+        self.debug_enabled = debug_enabled
         self.modify_http_request_hook = modify_http_request_hook
         self.request_engine_builder = request_engine_builder
-        self.adaptive = adaptive
 
     def get_url(self, host, path, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
@@ -53,8 +52,8 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_mode,
-                                                           parse_response, parse_on_error, fail_fast, self.adaptive)
+                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def head_url(self, host, path, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
@@ -67,8 +66,8 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_mode,
-                                                           False, False, fail_fast, self.adaptive)
+                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           False, False, fail_fast)
         return request_engine.execute()
 
     def post_url(self, host, path, *,
@@ -83,8 +82,8 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_mode,
-                                                           parse_response, parse_on_error, fail_fast, self.adaptive)
+                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def put_url(self, host, path, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
@@ -98,8 +97,8 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_mode,
-                                                           parse_response, parse_on_error, fail_fast, self.adaptive)
+                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def delete_url(self, host, path, *, name=None, data=None, headers=None, content_type=None, profile=None,
@@ -113,8 +112,8 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_mode,
-                                                           parse_response, parse_on_error, fail_fast, self.adaptive)
+                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def execute_request(self, request: RequestBuilder) -> Future[RequestResult]:
@@ -229,12 +228,11 @@ class HttpClientFactory:
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
 
-    def get_http_client(self, modify_http_request_hook=None, debug_mode=False, adaptive=False) -> HttpClient:
+    def get_http_client(self, modify_http_request_hook=None, debug_enabled=False) -> HttpClient:
         return HttpClient(
             self.http_client,
             self.source_app,
             self.request_engine_builder,
             modify_http_request_hook=modify_http_request_hook,
-            debug_mode=debug_mode,
-            adaptive=adaptive
+            debug_enabled=debug_enabled
         )

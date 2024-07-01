@@ -19,7 +19,7 @@ class TestUpstreamProfiles(TestBase, BalancingClientMixin):
     def create_request_balancer(self, profile):
         test_request = RequestBuilder("test", "test-app", "/test", 'GET')
         return self.request_balancer_builder.build(test_request, profile, self.create_execute_request_callback(),
-                                                   None, False, False, False, False, False)
+                                                   None, False, False, False, False)
 
     def create_execute_request_callback(self):
         async def execute_request(test_request: RequestBuilder) -> RequestResult:
