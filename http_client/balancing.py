@@ -654,8 +654,9 @@ class RequestBalancer(RequestEngine):
 
             asyncio.get_event_loop().create_task(self.kafka_producer.send(
                 'metrics_requests',
-                utf8(f'{{"app":"{options.app}","dc":"{dc}","hostname":"{current_host}","requestId":"{request_id}",'
-                     f'"status":{status_code},"ts":{int(time.time())},"upstream":"{upstream}"}}')
+                utf8(f'{{"app":"{request.source_app}","dc":"{dc}","hostname":"{current_host}",'
+                     f'"requestId":"{request_id}","status":{status_code},"ts":{int(time.time())},'
+                     f'"upstream":"{upstream}"}}')
             ))
 
     def get_trace(self):

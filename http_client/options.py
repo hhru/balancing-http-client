@@ -3,7 +3,6 @@ from dataclasses import dataclass, field, fields
 
 @dataclass
 class Options:
-    app: str = None
     datacenter: str = None
     datacenters: list = field(default_factory=lambda: [])
 
