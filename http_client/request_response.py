@@ -72,6 +72,7 @@ class RequestBuilder:
         'session_required',
         'request_time_left',
         'start_time',
+        'source_app',
     )
 
     def __init__(
@@ -92,6 +93,7 @@ class RequestBuilder:
         follow_redirects=True,
         idempotent=True,
     ):
+        self.source_app = source_app
         self.host = host.rstrip('/')
         self.path: str = path if path.startswith('/') else '/' + path
         self.name = name
