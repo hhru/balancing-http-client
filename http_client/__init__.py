@@ -165,7 +165,7 @@ class AIOHttpClientWrapper:
     def close(self):
         pass
 
-    def fetch(self, request: RequestBuilder, **kwargs) -> Future[RequestResult]:
+    def fetch(self, request: RequestBuilder, raise_error=True, **kwargs) -> Future[RequestResult]:
         future = Future()
 
         def handle_response(response) -> None:
