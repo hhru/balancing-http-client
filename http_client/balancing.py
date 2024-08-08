@@ -746,7 +746,7 @@ class RequestBalancerBuilder(RequestEngineBuilder):
                                         parse_response, parse_on_error, fail_fast,
                                         self.statsd_client, self.kafka_producer)
         else:
-            if options.adaptive:
+            if options.http_client_adaptive_strategy:
                 state = AdaptiveBalancingState(upstream, profile)
             else:
                 state = BalancingState(upstream, profile)
