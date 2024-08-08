@@ -22,7 +22,7 @@ class Options:
     max_clients: int = 100
     use_orjson: bool = True
     balancing_requests_log_level: str = 'debug'
-    adaptive: bool = False
+    http_client_adaptive_strategy: bool = False
     log_adaptive_statistics: bool = False
 
 
