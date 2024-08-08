@@ -4,7 +4,7 @@ build-backend = 'poetry.core.masonry.api'
 
 [tool.poetry]
 name = 'http_client'
-version = '2.1.16'
+version = '2.1.17'
 description = 'Balancing http client around aiohttp'
 authors = ['architecture <arch-team@hh.ru>']
 
