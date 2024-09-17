@@ -1,3 +1,4 @@
+import sys
 import threading
 
 import pytest
@@ -35,6 +36,7 @@ class TestNotCloseSocket(TestBase, BalancingClientMixin):
 
     # TODO doesn't work on macos,
     #  no signal after client_sock.recv(4), so there is asyncio.TimeoutError and no time for retry
+    @pytest.mark.skipif(sys.platform == 'darwin', reason='problems with client_sock.recv on macos')
     async def test_server_exception_idempotent_retries(self):
         result = await self.balancing_client.get_url('test', '/')
         assert result.exc is None

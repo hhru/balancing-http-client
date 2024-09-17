@@ -4,7 +4,7 @@ import logging
 import time
 from asyncio import Future
 from collections import OrderedDict
-from random import random, shuffle
+from random import random
 from typing import List
 
 import aiohttp
