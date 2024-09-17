@@ -10,10 +10,8 @@ import yarl
 from aiohttp.client_exceptions import ClientError
 
 from http_client.options import options
-from http_client.request_response import (NoAvailableServerException,
-                                          RequestBuilder, RequestResult,
+from http_client.request_response import (RequestBuilder, RequestResult,
                                           TornadoResponseWrapper)
-from http_client.util import make_body, make_mfd, to_unicode
 
 client_request_context = contextvars.ContextVar('request')
 response_status_code_context = contextvars.ContextVar('response_status_code')
