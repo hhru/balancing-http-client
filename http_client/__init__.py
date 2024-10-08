@@ -167,6 +167,9 @@ class AIOHttpClientWrapper:
         future = Future()
 
         def handle_response(response) -> None:
+            if future.done():
+                return
+
             if not isinstance(response, RequestResult):
                 """
                 only for testing
