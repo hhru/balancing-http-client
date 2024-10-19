@@ -10,6 +10,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import partial
+from http.cookies import SimpleCookie
 from typing import Optional
 
 import aiohttp
@@ -292,6 +293,12 @@ class RequestResult:
         if self._response is not None:
             return self._response.headers
         return CIMultiDict()
+
+    @property
+    def cookies(self):
+        if self._response is not None:
+            return self._response.cookies
+        return SimpleCookie()
 
     @property
     def data(self):

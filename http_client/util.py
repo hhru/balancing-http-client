@@ -28,7 +28,7 @@ def any_to_unicode(s):
     return str(s)
 
 
-def any_to_bytes(s):
+def any_to_bytes(s: Any) -> bytes:
     if isinstance(s, str):
         return utf8(s)
     elif isinstance(s, bytes):
