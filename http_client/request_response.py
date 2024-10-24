@@ -241,7 +241,7 @@ class RequestResult:
         self._status_code = status_code
         self._response: Optional[ClientResponse] = response
         self._response_body: Optional[bytes] = response_body
-        self._content_type: str | None = None
+        self._content_type: Optional[str] = None
         self._data = None
         self._data_parse_error: Optional[DataParseError] = None
 
