@@ -1,8 +1,10 @@
 import mimetypes
-from typing import Any
+from typing import Any, Dict, List
 from urllib.parse import urlencode
 from uuid import uuid4
 import random
+
+from aiohttp import FormData
 
 from http_client.options import options
 
@@ -74,6 +76,20 @@ BOUNDARY_ = choose_boundary()
 BOUNDARY = utf8(BOUNDARY_)
 
 
+def make_form_data(fields: Dict[str, str], files: Dict[str, List[Dict[str, Any]]]) -> FormData:
+    form = FormData(fields=list(fields.items()) if fields else [])
+    if files:
+        for name, files_ in files.items():
+            for file_dict in files_:
+                form.add_field(
+                    name=name,
+                    value=file_dict['body'],
+                    filename=file_dict['filename'],
+                    content_type=file_dict.get('content_type', 'application/unknown'),
+                )
+    return form
+
+
 def make_mfd(fields, files):
     """
     Constructs request body in multipart/form-data format
@@ -81,6 +97,7 @@ def make_mfd(fields, files):
     fields :: { field_name : field_value }
     files :: { field_name: [{ "filename" : fn, "body" : bytes }]}
     """
+
     def addslashes(text):
         for s in (b'\\', b'"'):
             if s in text:
@@ -91,9 +108,13 @@ def make_mfd(fields, files):
         name = addslashes(any_to_bytes(name))
 
         return [
-            b'--', BOUNDARY,
-            b'\r\nContent-Disposition: form-data; name="', name,
-            b'"\r\n\r\n', any_to_bytes(data), b'\r\n'
+            b'--',
+            BOUNDARY,
+            b'\r\nContent-Disposition: form-data; name="',
+            name,
+            b'"\r\n\r\n',
+            any_to_bytes(data),
+            b'\r\n',
         ]
 
     def create_file_field(name, filename, data, content_type):
@@ -106,10 +127,17 @@ def make_mfd(fields, files):
         filename = addslashes(any_to_bytes(filename))
 
         return [
-            b'--', BOUNDARY,
-            b'\r\nContent-Disposition: form-data; name="', name, b'"; filename="', filename,
-            b'"\r\nContent-Type: ', any_to_bytes(content_type),
-            b'\r\n\r\n', any_to_bytes(data), b'\r\n'
+            b'--',
+            BOUNDARY,
+            b'\r\nContent-Disposition: form-data; name="',
+            name,
+            b'"; filename="',
+            filename,
+            b'"\r\nContent-Type: ',
+            any_to_bytes(content_type),
+            b'\r\n\r\n',
+            any_to_bytes(data),
+            b'\r\n',
         ]
 
     body = []
@@ -127,9 +155,9 @@ def make_mfd(fields, files):
 
     for name, files in files.items():
         for file in files:
-            body.extend(create_file_field(
-                name, file['filename'], file['body'], file.get('content_type', 'application/unknown')
-            ))
+            body.extend(
+                create_file_field(name, file['filename'], file['body'], file.get('content_type', 'application/unknown'))
+            )
 
     body.extend([b'--', BOUNDARY, b'--\r\n'])
     content_type = 'multipart/form-data; boundary=' + BOUNDARY_

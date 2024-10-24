@@ -20,7 +20,7 @@ from lxml import etree
 from multidict import CIMultiDict
 
 from http_client.options import options
-from http_client.util import make_body, make_mfd, make_url, to_unicode, xml_to_dict
+from http_client.util import make_body, make_mfd, make_url, to_unicode, xml_to_dict, make_form_data
 
 USER_AGENT_HEADER = 'User-Agent'
 
@@ -93,6 +93,7 @@ class RequestBuilder:
         speculative_timeout_pct=None,
         follow_redirects=True,
         idempotent=True,
+        use_form_data=False,
     ):
         self.source_app = source_app
         self.host = host.rstrip('/')
@@ -118,15 +119,18 @@ class RequestBuilder:
             self.headers[USER_AGENT_HEADER] = source_app
 
         if self.method == 'POST':
-            if files:
-                self.body, content_type = make_mfd(data, files)
+            if use_form_data:
+                self.body = make_form_data(data, files)
             else:
-                self.body = make_body(data)
+                if files:
+                    self.body, content_type = make_mfd(data, files)
+                else:
+                    self.body = make_body(data)
 
-            if content_type is None:
-                content_type = self.headers.get('Content-Type', 'application/x-www-form-urlencoded')
+                if content_type is None:
+                    content_type = self.headers.get('Content-Type', 'application/x-www-form-urlencoded')
 
-            self.headers['Content-Length'] = str(len(self.body))
+                self.headers['Content-Length'] = str(len(self.body))
         elif self.method == 'PUT':
             self.body = make_body(data)
         else:
