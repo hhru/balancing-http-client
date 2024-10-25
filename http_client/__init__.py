@@ -72,11 +72,11 @@ class HttpClient:
                  name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
                  parse_response=True, parse_on_error=False, fail_fast=False,
-                 speculative_timeout_pct=None) -> Future[RequestResult]:
+                 speculative_timeout_pct=None, use_form_data=False) -> Future[RequestResult]:
 
         request = RequestBuilder(
-            host, self.source_app, path, name, 'POST', data, headers, files, content_type,
-            connect_timeout, request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects, idempotent
+            host, self.source_app, path, name, 'POST', data, headers, files, content_type, connect_timeout,
+            request_timeout, max_timeout_tries, speculative_timeout_pct, follow_redirects, idempotent, use_form_data
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
