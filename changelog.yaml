@@ -1,3 +1,9 @@
+-   name: 2.1.22
+    date: '2024-11-01T13:38:17.499768+03:00'
+    description: ''
+    instructions: ''
+    compatible: true
+
 -   name: 2.1.21
     date: '2024-10-26T02:36:23.186302+03:00'
     description: Добавили возможность использовать aiohttp.FormData вместо frontik.utils
