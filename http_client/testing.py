@@ -76,11 +76,11 @@ class MockedRequest:
         if self.url_or_pattern.host != url.host:
             return False
 
-        if self.url_or_pattern.path != url.path:
+        if self.url_or_pattern.path.rstrip('/') != url.path.rstrip('/'):
             return False
 
-        for param, a_value in self.url_or_pattern.query.items():
-            if param not in url.query or url.query[param] != a_value:
+        for mock_param, mock_value in self.url_or_pattern.query.items():
+            if mock_param not in url.query or mock_value not in url.query.getall(mock_param):
                 return False
 
         return True
