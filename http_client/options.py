@@ -17,6 +17,7 @@ class Options:
     http_proxy_host: str = None
     http_proxy_port: int = 3128
     http_client_allow_cross_datacenter_requests: bool = False
+    force_allow_cross_datacenter_for_upstreams: list = field(default_factory=lambda: [])
     self_node_filter_enabled: bool = False
     node_name: str = ''
     max_clients: int = 100
