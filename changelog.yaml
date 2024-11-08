@@ -1,3 +1,9 @@
+-   name: 2.1.23
+    date: '2024-11-08T12:00:53.186260+03:00'
+    description: 'add option: ignore_cross_datacenter_check_for_upstreams'
+    instructions: ''
+    compatible: true
+
 -   name: 2.1.22
     date: '2024-11-01T13:38:17.499768+03:00'
     description: ''
