@@ -223,7 +223,8 @@ class Upstream:
         self.config_by_profile = config_by_profile if config_by_profile \
             else {Upstream.DEFAULT_PROFILE: self.get_default_config()}
         self._update_servers(servers)
-        self.allow_cross_dc_requests = options.http_client_allow_cross_datacenter_requests
+        self.allow_cross_dc_requests = options.http_client_allow_cross_datacenter_requests \
+            or name in options.force_allow_cross_datacenter_for_upstreams
         self.datacenter: str = options.datacenter
 
     def acquire_server(self, excluded_servers=None):
