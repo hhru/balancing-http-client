@@ -7,7 +7,6 @@ from tests.test_balancing_base import BalancingClientMixin, TestBase
 class TestBalancingInApplication(TestBase, BalancingClientMixin):
     @pytest.fixture(scope="function", autouse=True)
     def setup_method(self, working_server: HTTPServer):
-        super().setup_method(working_server)
 
         working_server.expect_request('/content', method='POST').respond_with_data(
             'post_success', status=200, headers={'content-type': 'text/plain'})

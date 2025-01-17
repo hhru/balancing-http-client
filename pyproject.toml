@@ -10,14 +10,14 @@ authors = ['architecture <arch-team@hh.ru>']
 
 [tool.poetry.dependencies]
 python = '~=3.9'
-aiohttp = '3.9.5'
+aiohttp = '>=3.8.3, <4.0.0'
 lxml = '4.9.3'
 yarl = '1.9.3'
 orjson = '*'
 
 [tool.poetry.group.test.dependencies]
-pytest = '7.3.2'
-pytest-asyncio = '0.21.1'
+pytest = '8.3.3'
+pytest-asyncio = '0.24.0'
 pycodestyle = '2.10.0'
 pytest-httpserver = '1.0.8'
 black = '23.9.1'
