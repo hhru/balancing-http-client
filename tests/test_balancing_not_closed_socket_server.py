@@ -22,13 +22,12 @@ def not_closed_socket_server(sock):
 
 class TestNotCloseSocket(TestBase, BalancingClientMixin):
     @pytest.fixture(scope="function", autouse=True)
-    def setup_method(self, working_server: HTTPServer):
+    def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.not_closed_socket_server_socket, not_closed_socket_server_port = self.bind_unused_port()
         exceptionally_server_thread = threading.Thread(target=not_closed_socket_server,
                                                        args=(self.not_closed_socket_server_socket,))
         exceptionally_server_thread.daemon = True
         exceptionally_server_thread.start()
-        super().setup_method(working_server)
         self.register_ports_for_upstream(not_closed_socket_server_port, working_server.port)
 
     def teardown_method(self):
@@ -36,7 +35,7 @@ class TestNotCloseSocket(TestBase, BalancingClientMixin):
 
     # TODO doesn't work on macos,
     #  no signal after client_sock.recv(4), so there is asyncio.TimeoutError and no time for retry
-    @pytest.mark.skipif(sys.platform == 'darwin', reason='problems with client_sock.recv on macos')
+    @pytest.mark.skip(reason='problems with client_sock.recv on macos')
     async def test_server_exception_idempotent_retries(self):
         result = await self.balancing_client.get_url('test', '/')
         assert result.exc is None

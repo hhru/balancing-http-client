@@ -12,8 +12,7 @@ from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 class TestUpstreamProfiles(TestBase, BalancingClientMixin):
     @pytest.fixture(scope="function", autouse=True)
-    def setup_method(self, working_server: HTTPServer):
-        super().setup_method(working_server)
+    def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.register_ports_for_upstream("8081", "8082", "8083")
 
     def create_request_balancer(self, profile):

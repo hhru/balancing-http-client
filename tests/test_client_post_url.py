@@ -16,9 +16,7 @@ FIELD_VALUE = "field1_value"
 
 class TestClientPostUrl(TestBase, BalancingClientMixin):
     @pytest.fixture(scope="function", autouse=True)
-    def setup_method(self, working_server: HTTPServer):
-        super().setup_method(working_server)
-
+    def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         def handler(request: Request):
             assert len(request.files) == 1
             assert FILE_FIELD in request.files

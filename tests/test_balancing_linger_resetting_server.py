@@ -28,12 +28,11 @@ def linger_resetting_server(sock):
 
 class TestLingerResettingServer(TestBase, BalancingClientMixin):
     @pytest.fixture(scope="function", autouse=True)
-    def setup_method(self, working_server: HTTPServer):
+    def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.resetting_server_socket, resetting_server_port = self.bind_unused_port()
         resetting_server_thread = threading.Thread(target=linger_resetting_server, args=(self.resetting_server_socket,))
         resetting_server_thread.daemon = True
         resetting_server_thread.start()
-        super().setup_method(working_server)
         self.register_ports_for_upstream(resetting_server_port, working_server.port)
 
     def teardown_method(self):
