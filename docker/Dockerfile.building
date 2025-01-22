@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM registry.pyn.ru/python3.11-bullseye-building:2023.08.09
+FROM registry.pyn.ru/python3.9-bullseye-building:2025.01.28
 
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
 

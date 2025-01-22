@@ -3,6 +3,8 @@ from typing import Any, Dict, List
 from urllib.parse import urlencode
 from uuid import uuid4
 import random
+from contextlib import contextmanager
+from collections.abc import Iterator
 
 from aiohttp import FormData
 
@@ -208,3 +210,12 @@ def weighted_sample(elems: list, weights: list, k: int, sum_weight: int) -> list
         n -= 1
 
     return result
+
+
+@contextmanager
+def set_contextvar(contextvar, value) -> Iterator:
+    token = contextvar.set(value)
+    try:
+        yield
+    finally:
+        contextvar.reset(token)
