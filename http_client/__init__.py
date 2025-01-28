@@ -10,11 +10,12 @@ import yarl
 from aiohttp.client_exceptions import ClientError
 
 from http_client.options import options
-from http_client.request_response import (RequestBuilder, RequestResult,
-                                          TornadoResponseWrapper)
+from http_client.request_response import RequestBuilder, RequestResult, TornadoResponseWrapper
+from http_client.util import set_contextvar
 
-client_request_context = contextvars.ContextVar('request')
-response_status_code_context = contextvars.ContextVar('response_status_code')
+current_client_request = contextvars.ContextVar('current_client_request')
+current_client_request_status = contextvars.ContextVar('current_client_request_status')
+extra_client_params = contextvars.ContextVar('extra_client_params', default=(None, False))
 
 
 class RequestEngine(metaclass=abc.ABCMeta):
@@ -31,18 +32,16 @@ class RequestEngineBuilder(metaclass=abc.ABCMeta):
 
 
 class HttpClient:
-    def __init__(self, http_client_impl, source_app, request_engine_builder: RequestEngineBuilder, *,
-                 modify_http_request_hook=None, debug_enabled=False):
+    def __init__(self, http_client_impl, source_app, request_engine_builder: RequestEngineBuilder):
         self.http_client_impl = http_client_impl
         self.source_app = source_app
-        self.debug_enabled = debug_enabled
-        self.modify_http_request_hook = modify_http_request_hook
         self.request_engine_builder = request_engine_builder
 
     def get_url(self, host, path, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                 connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                parse_response=True, parse_on_error=False, fail_fast=False,
+                parse_response=True, parse_on_error=True, fail_fast=False,
                 speculative_timeout_pct=None) -> Future[RequestResult]:
+        modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'GET', data, headers, None, None,
@@ -50,13 +49,14 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           modify_http_request_hook, debug_enabled,
                                                            parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def head_url(self, host, path, *, name=None, data=None, headers=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None,
                  fail_fast=False, speculative_timeout_pct=None) -> Future[RequestResult]:
+        modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'HEAD', data, headers, None, None,
@@ -64,15 +64,16 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           modify_http_request_hook, debug_enabled,
                                                            False, False, fail_fast)
         return request_engine.execute()
 
     def post_url(self, host, path, *,
                  name=None, data='', headers=None, files=None, content_type=None, follow_redirects=True, profile=None,
                  connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=False,
-                 parse_response=True, parse_on_error=False, fail_fast=False,
+                 parse_response=True, parse_on_error=True, fail_fast=False,
                  speculative_timeout_pct=None, use_form_data=False) -> Future[RequestResult]:
+        modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'POST', data, headers, files, content_type, connect_timeout,
@@ -80,14 +81,15 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           modify_http_request_hook, debug_enabled,
                                                            parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def put_url(self, host, path, *, name=None, data='', headers=None, content_type=None, follow_redirects=True,
                 profile=None, connect_timeout=None, request_timeout=None, max_timeout_tries=None, idempotent=True,
-                parse_response=True, parse_on_error=False, fail_fast=False,
+                parse_response=True, parse_on_error=True, fail_fast=False,
                 speculative_timeout_pct=None) -> Future[RequestResult]:
+        modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'PUT', data, headers, None, content_type,
@@ -95,14 +97,15 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           modify_http_request_hook, debug_enabled,
                                                            parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
     def delete_url(self, host, path, *, name=None, data=None, headers=None, content_type=None, profile=None,
                    connect_timeout=None, request_timeout=None, max_timeout_tries=None,
-                   parse_response=True, parse_on_error=False, fail_fast=False,
+                   parse_response=True, parse_on_error=True, fail_fast=False,
                    speculative_timeout_pct=None) -> Future[RequestResult]:
+        modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
             host, self.source_app, path, name, 'DELETE', data, headers, None, content_type,
@@ -110,7 +113,7 @@ class HttpClient:
         )
 
         request_engine = self.request_engine_builder.build(request, profile, self.execute_request,
-                                                           self.modify_http_request_hook, self.debug_enabled,
+                                                           modify_http_request_hook, debug_enabled,
                                                            parse_response, parse_on_error, fail_fast)
         return request_engine.execute()
 
@@ -152,13 +155,13 @@ class AIOHttpClientWrapper:
     async def _on_request_end(self, session, trace_config_ctx, params):
         elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
         self._elapsed_time.set(elapsed)
-        response_status_code_context.set(params.response.status)
+        current_client_request_status.set(params.response.status)
 
     async def _on_request_exception(self, session, trace_config_ctx, params):
         elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
         self._elapsed_time.set(elapsed)
         if isinstance(params.exception, (ClientError, TimeoutError)):
-            response_status_code_context.set(599)
+            current_client_request_status.set(599)
 
     def close(self):
         pass
@@ -194,25 +197,35 @@ class AIOHttpClientWrapper:
 
     def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
         async def real_fetch():
-            client_request_context.set(request)
-            try:
-                response = await self.client_session.request(
-                    method=request.method,
-                    url=request.url,
-                    headers=request.headers,
-                    data=request.body,
-                    allow_redirects=request.follow_redirects,
-                    timeout=request.timeout,
-                    proxy=request.proxy,
-                )
-                request.start_time = self._start_time.get(0)
-                response_body = await response.read()
-                result = RequestResult(request, response.status, response, response_body,
-                                       elapsed_time=self._elapsed_time.get(0))
+            with (
+                set_contextvar(current_client_request, request),
+                set_contextvar(current_client_request_status, None),
+                set_contextvar(self._elapsed_time, 0),
+                set_contextvar(self._start_time, 0),
+            ):
+                try:
+                    response = await self.client_session.request(
+                        method=request.method,
+                        url=request.url,
+                        headers=request.headers,
+                        data=request.body,
+                        allow_redirects=request.follow_redirects,
+                        timeout=request.timeout,
+                        proxy=request.proxy,
+                    )
+                    request.start_time = self._start_time.get()
+                    response_body = await response.read()
+                    result = RequestResult(
+                        request, response.status, response, response_body, elapsed_time=self._elapsed_time.get()
+                    )
 
-            except (ClientError, TimeoutError) as exc:
-                result = RequestResult(request, response_status_code_context.get(599),
-                                       elapsed_time=self._elapsed_time.get(0), exc=exc)
+                except (ClientError, TimeoutError) as exc:
+                    result = RequestResult(
+                        request,
+                        current_client_request_status.get() or 599,
+                        elapsed_time=self._elapsed_time.get(),
+                        exc=exc,
+                    )
 
             if callback is not None:
                 callback(result)
@@ -224,16 +237,10 @@ class AIOHttpClientWrapper:
 
 
 class HttpClientFactory:
-    def __init__(self, source_app, http_client: AIOHttpClientWrapper, request_engine_builder: RequestEngineBuilder):
-        self.http_client = http_client
+    def __init__(self, source_app, request_engine_builder: RequestEngineBuilder):
+        self.http_client = AIOHttpClientWrapper()
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
 
-    def get_http_client(self, modify_http_request_hook=None, debug_enabled=False) -> HttpClient:
-        return HttpClient(
-            self.http_client,
-            self.source_app,
-            self.request_engine_builder,
-            modify_http_request_hook=modify_http_request_hook,
-            debug_enabled=debug_enabled
-        )
+    def get_http_client(self) -> HttpClient:
+        return HttpClient(self.http_client, self.source_app, self.request_engine_builder)
