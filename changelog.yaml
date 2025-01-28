@@ -1,3 +1,11 @@
+-   name: 2.2.0
+    date: '2025-01-28T17:09:57.172556+03:00'
+    description: "- Поменялись дефолтные значения для parse_on_error\r\n- больше не\
+        \ нужно передавать в фабрику AIOHttpClientWrapper\r\n- modify_http_request_hook\
+        \ теперь достаются из контекствара"
+    instructions: ''
+    compatible: true
+
 -   name: 2.1.27
     date: '2025-01-17T16:39:35.531465+03:00'
     description: ''
