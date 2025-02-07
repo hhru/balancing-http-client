@@ -344,7 +344,12 @@ class RequestResult:
         return None
 
     def response_from_debug(self):
-        debug_response = etree.XML(self._response_body)
+        try:
+            debug_response = etree.XML(self._response_body)
+        except Exception:
+            http_client_logger.error(f'couldnt parse xml: {self._response_body}')
+            raise
+
         original_response = debug_response.find('original-response')
 
         if original_response is not None:
