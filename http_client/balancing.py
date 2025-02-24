@@ -22,42 +22,49 @@ from http_client.util import utf8, weighted_sample
 DOWNTIME_DETECTOR_WINDOW = 100
 RESPONSE_TIME_TRACKER_WINDOW = 500
 WARM_UP_DEFAULT_TIME_MILLIS = 100
-lowest_health_percent = 2
-LOWEST_HEALTH = int(lowest_health_percent * DOWNTIME_DETECTOR_WINDOW / 100)
+LOWEST_HEALTH_PERCENT = 2
+LOWEST_HEALTH = int(LOWEST_HEALTH_PERCENT * DOWNTIME_DETECTOR_WINDOW / 100)
+INITIAL_LIVE_PERCENT = 10
+
 http_client_logger = logging.getLogger('http_client')
 
 
 class DowntimeDetector:
-    def __init__(self, n=DOWNTIME_DETECTOR_WINDOW):
-        self.n = n
-        self.healths = collections.deque([0], n)
-        self.health = LOWEST_HEALTH
+    def __init__(self, max_length=DOWNTIME_DETECTOR_WINDOW, initial_live_percent=INITIAL_LIVE_PERCENT):
+        self.max_length = max_length
+        if initial_live_percent > 0:
+            self.healths = collections.deque(maxlen=max_length)
+            ones = max_length * initial_live_percent // 100
+            self.healths.extend([0] * (max_length - ones))
+            self.healths.extend([1] * ones)
+            self.health = ones
+        else:
+            self.healths = collections.deque([1], maxlen=max_length)
+            self.health = max_length
 
-    def failed(self):
+    def add_fail(self):
         self.health -= self.healths[0]
-        if self.health < LOWEST_HEALTH:
-            self.health = LOWEST_HEALTH
         self.healths.append(0)
 
-    def success(self):
+    def add_success(self):
         self.health += 1 - self.healths[0]
         self.healths.append(1)
 
 
 class ResponseTimeTracker:
-    def __init__(self, n=RESPONSE_TIME_TRACKER_WINDOW):
+    def __init__(self, max_length=RESPONSE_TIME_TRACKER_WINDOW):
         self.is_warm_up = True
         self.total = 0
-        self.n = n
-        self.times = collections.deque([0], n)
+        self.max_length = max_length
+        self.response_times = collections.deque([0], max_length)
         self.mean = 1
 
-    def time(self, time_ms: int):
-        self.total += time_ms - self.times[0]
-        self.mean = self.total // self.n or 1
+    def add_response_time(self, time_ms: int):
+        self.total += time_ms - self.response_times[0]
+        self.mean = (self.total // self.max_length) or 1
 
-        self.times.append(time_ms)
-        if len(self.times) == self.n:
+        self.response_times.append(time_ms)
+        if len(self.response_times) == self.max_length:
             self.is_warm_up = False
 
 
@@ -112,11 +119,11 @@ class Server:
 
     def release_adaptive(self, elapsed_time_s, is_server_error):
         if is_server_error:
-            self.downtime_detector.failed()
+            self.downtime_detector.add_fail()
         else:
-            self.downtime_detector.success()
+            self.downtime_detector.add_success()
             elapsed_time_ms = int(elapsed_time_s * 1000)
-            self.response_time_tracker.time(elapsed_time_ms)
+            self.response_time_tracker.add_response_time(elapsed_time_ms)
 
     def get_stat_load(self, current_servers):
         if self.slow_start_mode_enabled:
@@ -356,7 +363,9 @@ class AdaptiveBalancingStrategy:
             return servers
 
         # gather statistics
-        is_any_warming_up = False
+        warmups = None
+        sum_of_means = 0
+        warmup_count = 0
         min_mean = 100500
         max_mean = 0
         for i, server in enumerate(servers):
@@ -366,21 +375,35 @@ class AdaptiveBalancingStrategy:
                                          tracker.is_warm_up, tracker.mean, server.downtime_detector.health)
 
             if tracker.is_warm_up:
-                is_any_warming_up = True
+                if warmups is None:
+                    warmups = [False] * n
+                warmups[i] = True
+                warmup_count += 1
             else:
                 mean = tracker.mean
                 if mean < min_mean:
                     min_mean = mean
                 if mean > max_mean:
                     max_mean = mean
+                sum_of_means += mean
+
+        warmup_score = None
+        if warmups is not None:
+            if sum_of_means == 0:
+                warmup_score = WARM_UP_DEFAULT_TIME_MILLIS
+            else:
+                warmup_score = sum_of_means / (n - warmup_count)
 
         # adjust scores based on downtime detector health and response time tracker score
         scores = []
         total = 0
         for i, server in enumerate(servers):
-            time_ms = WARM_UP_DEFAULT_TIME_MILLIS if is_any_warming_up else server.response_time_tracker.mean
-            inverted_time = time_ms if is_any_warming_up else round(min_mean * max_mean / time_ms)
-            score = inverted_time * server.downtime_detector.health
+            if warmups is not None and warmups[i]:
+                inverted_time = round(warmup_score)
+            else:
+                inverted_time = round(min_mean * max_mean / server.response_time_tracker.mean)
+
+            score = inverted_time * max(server.downtime_detector.health, LOWEST_HEALTH)
             if options.log_adaptive_statistics:
                 http_client_logger.debug('balancer stats for %s, health: %s, inverted_time_score: %s, final_score: %s',
                                          server, server.downtime_detector.health, inverted_time, score)
