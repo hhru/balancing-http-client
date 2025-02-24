@@ -1,3 +1,9 @@
+-   name: 2.2.1
+    date: '2025-02-24T07:20:23.486913+03:00'
+    description: ''
+    instructions: ''
+    compatible: true
+
 -   name: 2.2.0
     date: '2025-01-28T17:09:57.172556+03:00'
     description: "- Поменялись дефолтные значения для parse_on_error\r\n- больше не\
