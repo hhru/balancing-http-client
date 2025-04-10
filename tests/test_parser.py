@@ -171,10 +171,17 @@ class TestParser:
                                 "connect_timeout_sec":"0.1",
                                 "retry_policy":{
                                     "503":{
-                                        "idempotent":"true"
+                                        "retry_non_idempotent":"true"
                                     },
                                     "599":{
-                                        "idempotent":"false"
+                                        "retry_non_idempotent":"false"
+                                    },
+                                    "502":{
+                                        "idempotent":"true"
+                                    },
+                                    "504":{
+                                        "idempotent":"false",
+                                        "retry_non_idempotent":"true"
                                     }
                                 },
                                 "max_tries":"3"
@@ -188,4 +195,5 @@ class TestParser:
         config = parse_consul_upstream_config(value)
 
         upstream = Upstream('some_upstream', config, [])
-        assert upstream.config_by_profile.get(Upstream.DEFAULT_PROFILE).retry_policy.statuses == {503: True, 599: False}
+        assert (upstream.config_by_profile.get(Upstream.DEFAULT_PROFILE).retry_policy.statuses ==
+                {503: True, 599: False, 502: False, 504: True})
