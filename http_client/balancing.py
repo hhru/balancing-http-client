@@ -166,7 +166,7 @@ class RetryPolicy:
         self.statuses = {}
         if properties:
             for status, config in properties.items():
-                self.statuses[int(status)] = config.get('idempotent', 'false') == 'true'
+                self.statuses[int(status)] = config.get('retry_non_idempotent', 'false') == 'true'
         else:
             self.statuses = options.http_client_default_retry_policy
 
@@ -187,6 +187,12 @@ class RetryPolicy:
             return True
 
         return result.status_code in self.statuses
+
+    def __repr__(self):
+        policy = [f'"{status}":{{"retry_non_idempotent":{self.statuses.get(status)}}}'
+                  for status in sorted(self.statuses.keys())]
+
+        return f'{{{", ".join(policy)}}}'
 
 
 class UpstreamConfig:
@@ -217,7 +223,8 @@ class UpstreamConfig:
         return f'{{"max_tries":{self.max_tries}, "max_timeout_tries":{self.max_timeout_tries}, ' \
                f'"connect_timeout":{self.connect_timeout}, "request_timeout":{self.request_timeout}, ' \
                f'"speculative_timeout_pct":{self.speculative_timeout_pct}, ' \
-               f'"slow_start_interval":{self.slow_start_interval}, "session_required":{self.session_required}}}'
+               f'"slow_start_interval":{self.slow_start_interval}, "session_required":{self.session_required}, ' \
+               f'"retry_policy":{self.retry_policy}}}'
 
 
 class Upstream:
