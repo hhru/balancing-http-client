@@ -20,7 +20,7 @@ from lxml import etree
 from multidict import CIMultiDict
 
 from http_client.options import options
-from http_client.util import make_body, make_mfd, make_url, to_unicode, xml_to_dict, make_form_data
+from http_client.util import make_url, to_unicode, xml_to_dict, make_form_data
 
 USER_AGENT_HEADER = 'User-Agent'
 
@@ -93,7 +93,6 @@ class RequestBuilder:
         speculative_timeout_pct=None,
         follow_redirects=True,
         idempotent=True,
-        use_form_data=False,
     ):
         self.source_app = source_app
         self.host = host.rstrip('/')
@@ -111,6 +110,10 @@ class RequestBuilder:
         self.body = None
         self.start_time = None
         self.headers = CIMultiDict()
+
+        if content_type is not None:
+            self.headers['Content-Type'] = content_type
+
         if headers is not None:
             for key, value in headers.items():
                 self.headers.add(key, value if value is not None else '')
@@ -118,26 +121,16 @@ class RequestBuilder:
         if source_app and not self.headers.get(USER_AGENT_HEADER):
             self.headers[USER_AGENT_HEADER] = source_app
 
-        if self.method == 'POST':
-            if use_form_data:
-                self.body = make_form_data(data, files)
-            else:
-                if files:
-                    self.body, content_type = make_mfd(data, files)
+        if self.method in ('POST', 'PUT'):
+            if isinstance(data, dict):
+                if self.headers.get('Content-Type') == 'application/json':
+                    self.body = orjson.dumps(data)
                 else:
-                    self.body = make_body(data)
-
-                if content_type is None:
-                    content_type = self.headers.get('Content-Type', 'application/x-www-form-urlencoded')
-
-                self.headers['Content-Length'] = str(len(self.body))
-        elif self.method == 'PUT':
-            self.body = make_body(data)
+                    self.body = make_form_data(data, files)
+            elif isinstance(data, str):
+                self.body = data
         else:
             self.path = make_url(self.path, **({} if data is None else data))
-
-        if content_type is not None:
-            self.headers['Content-Type'] = content_type
 
         self.upstream_name = self.host
         self.upstream_datacenter = None

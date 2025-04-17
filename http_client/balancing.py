@@ -531,7 +531,7 @@ class RequestBalancer(RequestEngine):
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
-    async def speculative_retry(self):
+    async def _speculative_retry(self):
         await asyncio.sleep(self.speculative_timeout)
 
         if self._check_speculative_retry():
@@ -545,7 +545,7 @@ class RequestBalancer(RequestEngine):
         if not self._enable_speculative_retry():
             return request_task
 
-        speculative_request_task = asyncio.create_task(self.speculative_retry())
+        speculative_request_task = asyncio.create_task(self._speculative_retry())
         result_task = asyncio.create_task(speculative_requests(request_task, speculative_request_task))
         return result_task
 

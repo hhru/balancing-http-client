@@ -1,5 +1,5 @@
 import mimetypes
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from uuid import uuid4
 import random
@@ -78,7 +78,7 @@ BOUNDARY_ = choose_boundary()
 BOUNDARY = utf8(BOUNDARY_)
 
 
-def make_form_data(fields: Dict[str, str], files: Dict[str, List[Dict[str, Any]]]) -> FormData:
+def make_form_data(fields: Dict[str, str], files: Optional[Dict[str, List[Dict[str, Any]]]]) -> FormData:
     form = FormData(fields=list(fields.items()) if fields else [])
     if files:
         for name, files_ in files.items():
