@@ -5,7 +5,7 @@ import yarl
 from aiohttp.client_exceptions import ServerTimeoutError
 from aiohttp.client_reqrep import ClientResponse
 
-from http_client.request_response import RequestBuilder, RequestResult
+from http_client.request_response import BalancedHttpRequest, RequestResult
 from pytest_httpserver import HTTPServer
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
@@ -16,12 +16,12 @@ class TestUpstreamProfiles(TestBase, BalancingClientMixin):
         self.register_ports_for_upstream("8081", "8082", "8083")
 
     def create_request_balancer(self, profile):
-        test_request = RequestBuilder("test", "test-app", "/test", 'GET')
+        test_request = BalancedHttpRequest("test", "test-app", "/test", 'GET')
         return self.request_balancer_builder.build(test_request, profile, self.create_execute_request_callback(),
                                                    None, False, False, False, False)
 
     def create_execute_request_callback(self):
-        async def execute_request(test_request: RequestBuilder) -> RequestResult:
+        async def execute_request(test_request: BalancedHttpRequest) -> RequestResult:
             if test_request.host == self.servers[2].address:
                 url = yarl.URL(test_request.url)
                 client_response = ClientResponse(test_request.method, url, writer=None, continue100=None, timer=None,

@@ -49,7 +49,7 @@ class FailFastError(Exception):
         self.failed_result = failed_result
 
 
-class RequestBuilder:
+class BalancedHttpRequest:
     __slots__ = (
         'host',
         'path',
@@ -73,13 +73,11 @@ class RequestBuilder:
         'session_required',
         'request_time_left',
         'start_time',
-        'source_app',
     )
 
     def __init__(
         self,
         host: str,
-        source_app: str,
         path: str,
         name: str,
         method='GET',
@@ -94,7 +92,6 @@ class RequestBuilder:
         follow_redirects=True,
         idempotent=True,
     ):
-        self.source_app = source_app
         self.host = host.rstrip('/')
         self.path: str = path if path.startswith('/') else '/' + path
         self.name = name
@@ -117,9 +114,6 @@ class RequestBuilder:
         if headers is not None:
             for key, value in headers.items():
                 self.headers.add(key, value if value is not None else '')
-
-        if source_app and not self.headers.get(USER_AGENT_HEADER):
-            self.headers[USER_AGENT_HEADER] = source_app
 
         if self.method in ('POST', 'PUT'):
             if isinstance(data, dict):
@@ -174,6 +168,8 @@ def _parse_response(response_body, real_url, parser, response_type):
         return DataParseError(reason=f'invalid {response_type}')
 
 
+RequestBuilder = BalancedHttpRequest
+
 _xml_parser = etree.XMLParser(strip_cdata=False)
 _parse_response_xml = partial(
     _parse_response, parser=lambda body: etree.fromstring(body, parser=_xml_parser), response_type='xml'
@@ -217,7 +213,7 @@ class RequestResult:
 
     def __init__(
         self,
-        request: RequestBuilder,
+        request: BalancedHttpRequest,
         status_code: int,
         response: Optional[ClientResponse] = None,
         response_body: Optional[bytes] = None,

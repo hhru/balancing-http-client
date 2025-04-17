@@ -1,5 +1,5 @@
 from http_client.balancing import Server, AdaptiveBalancingStrategy, AdaptiveBalancingState, Upstream, BalancingState
-from http_client.request_response import RequestResult, RequestBuilder
+from http_client.request_response import RequestResult, BalancedHttpRequest
 from aiohttp.client_reqrep import ClientResponse
 from aiohttp.client_exceptions import ServerTimeoutError
 import asyncio
@@ -166,7 +166,7 @@ def execute_request_with_retry(state, tries_left, servers_hits, response_time_fu
     host = state.current_host
 
     # 2. генерим реквест/резалт
-    request = RequestBuilder(host, 'source_app', 'path', 'name')
+    request = BalancedHttpRequest(host, 'path', 'name')
     response_time = response_time_func(host)
     response_type = response_type_func(host)
     result = make_result_object(request, response_time, response_type)

@@ -11,7 +11,7 @@ from typing import List
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 
-from http_client import (RequestBuilder, RequestEngine, RequestEngineBuilder,
+from http_client import (BalancedHttpRequest, RequestEngine, RequestEngineBuilder,
                          RequestResult)
 from http_client.options import options
 from http_client.request_response import (FailFastError,
@@ -423,7 +423,7 @@ class AdaptiveBalancingStrategy:
 
 
 class ImmediateResultOrPreparedRequest:
-    def __init__(self, processed_request: RequestBuilder = None, result: RequestResult = None):
+    def __init__(self, processed_request: BalancedHttpRequest = None, result: RequestResult = None):
         self.result = result
         self.processed_request = processed_request
 
@@ -495,7 +495,7 @@ class AdaptiveBalancingState(BalancingState):
 
 
 class RequestBalancer(RequestEngine):
-    def __init__(self, request: RequestBuilder, execute_request, modify_http_request_hook, debug_enabled,
+    def __init__(self, request: BalancedHttpRequest, execute_request, modify_http_request_hook, debug_enabled,
                  parse_response, parse_on_error, fail_fast, connect_timeout, request_timeout, max_timeout_tries,
                  max_tries, speculative_timeout_pct, session_required, statsd_client, kafka_producer):
 
@@ -507,7 +507,7 @@ class RequestBalancer(RequestEngine):
         request.request_timeout *= options.timeout_multiplier
         request.timeout = aiohttp.ClientTimeout(total=request.request_timeout, connect=request.connect_timeout)
 
-        self.request: RequestBuilder = request
+        self.request: BalancedHttpRequest = request
         self.execute_request = execute_request
         self.modify_http_request_hook = modify_http_request_hook
 
@@ -581,7 +581,7 @@ class RequestBalancer(RequestEngine):
 
         return result
 
-    def _get_result_or_context(self, request: RequestBuilder) -> ImmediateResultOrPreparedRequest:
+    def _get_result_or_context(self, request: BalancedHttpRequest) -> ImmediateResultOrPreparedRequest:
         raise NotImplementedError
 
     def _on_response_received(self, result: RequestResult):
@@ -684,10 +684,11 @@ class RequestBalancer(RequestEngine):
             request_id = result.headers.get('X-Request-Id', 'unknown')
             status_code = result.status_code or 'null'
             upstream = request.upstream_name or 'unknown'
+            app = request.headers.get('User-Agent', 'unknown')
 
             asyncio.get_event_loop().create_task(self.kafka_producer.send(
                 'metrics_requests',
-                utf8(f'{{"app":"{request.source_app}","dc":"{dc}","hostname":"{current_host}",'
+                utf8(f'{{"app":{app},"dc":"{dc}","hostname":"{current_host}",'
                      f'"requestId":"{request_id}","status":{status_code},"ts":{int(time.time())},'
                      f'"upstream":"{upstream}"}}')
             ))
@@ -701,7 +702,7 @@ class ExternalUrlRequestor(RequestBalancer):
     DC_FOR_EXTERNAL_REQUESTS = "externalRequest"
     DEFAULT_RETRY_POLICY = RetryPolicy()
 
-    def __init__(self, request: RequestBuilder, execute_request, modify_http_request_hook, debug_enabled,
+    def __init__(self, request: BalancedHttpRequest, execute_request, modify_http_request_hook, debug_enabled,
                  parse_response, parse_on_error, fail_fast, statsd_client=None, kafka_producer=None):
         default_config = Upstream.get_default_config()
         super().__init__(request, execute_request, modify_http_request_hook, debug_enabled, parse_response,
@@ -710,7 +711,7 @@ class ExternalUrlRequestor(RequestBalancer):
                          default_config.speculative_timeout_pct, default_config.session_required,
                          statsd_client, kafka_producer)
 
-    def _get_result_or_context(self, request: RequestBuilder):
+    def _get_result_or_context(self, request: BalancedHttpRequest):
         request.upstream_datacenter = self.DC_FOR_EXTERNAL_REQUESTS
         return ImmediateResultOrPreparedRequest(processed_request=request)
 
@@ -722,11 +723,11 @@ class ExternalUrlRequestor(RequestBalancer):
 class UpstreamRequestBalancer(RequestBalancer):
 
     @staticmethod
-    def _get_server_not_available_result(request: RequestBuilder, upstream_name) -> RequestResult:
+    def _get_server_not_available_result(request: BalancedHttpRequest, upstream_name) -> RequestResult:
         exc = NoAvailableServerException(f'No available servers for upstream: {upstream_name}')
         return RequestResult(request, 599, exc=exc, elapsed_time=0)
 
-    def __init__(self, state: BalancingState, request: RequestBuilder, execute_request, modify_http_request_hook,
+    def __init__(self, state: BalancingState, request: BalancedHttpRequest, execute_request, modify_http_request_hook,
                  debug_enabled, parse_response, parse_on_error, fail_fast,
                  statsd_client=None, kafka_producer=None):
         upstream_config = state.get_upstream_config()
@@ -737,7 +738,7 @@ class UpstreamRequestBalancer(RequestBalancer):
                          statsd_client, kafka_producer)
         self.state = state
 
-    def _get_result_or_context(self, request: RequestBuilder):
+    def _get_result_or_context(self, request: BalancedHttpRequest):
         upstream_name = self.state.upstream.name
         self.state.acquire_server()
         if not self.state.is_server_available():
@@ -771,7 +772,7 @@ class RequestBalancerBuilder(RequestEngineBuilder):
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
-    def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_enabled,
+    def build(self, request: BalancedHttpRequest, profile, execute_request, modify_http_request_hook, debug_enabled,
               parse_response, parse_on_error, fail_fast) -> RequestEngine:
         upstream = self.upstream_getter(request.host)
         if upstream is None:

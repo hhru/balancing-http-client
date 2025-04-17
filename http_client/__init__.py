@@ -10,7 +10,7 @@ import yarl
 from aiohttp.client_exceptions import ClientError
 
 from http_client.options import options
-from http_client.request_response import RequestBuilder, RequestResult, TornadoResponseWrapper
+from http_client.request_response import BalancedHttpRequest, RequestResult, TornadoResponseWrapper, USER_AGENT_HEADER
 from http_client.util import set_contextvar
 
 current_client_request = contextvars.ContextVar('current_client_request')
@@ -28,7 +28,7 @@ class RequestEngineBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def build(
         self,
-        request: RequestBuilder,
+        request: BalancedHttpRequest,
         profile,
         execute_request,
         modify_http_request_hook,
@@ -48,13 +48,16 @@ class HttpClient:
 
     def make_request(
         self,
-        request: RequestBuilder,
+        request: BalancedHttpRequest,
         profile: Optional[str] = None,
         parse_response: bool = True,
         parse_on_error: bool = True,
         fail_fast: bool = False,
     ):
         modify_http_request_hook, debug_enabled = extra_client_params.get()
+
+        if not request.headers.get(USER_AGENT_HEADER):
+            request.headers[USER_AGENT_HEADER] = self.source_app
 
         request_engine = self.request_engine_builder.build(
             request,
@@ -86,10 +89,10 @@ class HttpClient:
         fail_fast=False,
         speculative_timeout_pct=None,
     ) -> Future[RequestResult]:
+
         return self.make_request(
-            request=RequestBuilder(
+            request=BalancedHttpRequest(
                 host=host,
-                source_app=self.source_app,
                 path=path,
                 name=name,
                 method='HEAD',
@@ -126,9 +129,8 @@ class HttpClient:
         speculative_timeout_pct=None,
     ) -> Future[RequestResult]:
         return self.make_request(
-            request=RequestBuilder(
+            request=BalancedHttpRequest(
                 host=host,
-                source_app=self.source_app,
                 path=path,
                 name=name,
                 method='GET',
@@ -168,9 +170,8 @@ class HttpClient:
         speculative_timeout_pct=None,
     ) -> Future[RequestResult]:
         return self.make_request(
-            request=RequestBuilder(
+            request=BalancedHttpRequest(
                 host=host,
-                source_app=self.source_app,
                 path=path,
                 name=name,
                 method='POST',
@@ -212,9 +213,8 @@ class HttpClient:
         speculative_timeout_pct=None,
     ) -> Future[RequestResult]:
         return self.make_request(
-            request=RequestBuilder(
+            request=BalancedHttpRequest(
                 host=host,
-                source_app=self.source_app,
                 path=path,
                 name=name,
                 method='PUT',
@@ -253,9 +253,8 @@ class HttpClient:
         speculative_timeout_pct=None,
     ) -> Future[RequestResult]:
         return self.make_request(
-            request=RequestBuilder(
+            request=BalancedHttpRequest(
                 host=host,
-                source_app=self.source_app,
                 path=path,
                 name=name,
                 method='DELETE',
@@ -321,7 +320,7 @@ class AIOHttpClientWrapper:
     def close(self):
         pass
 
-    def fetch(self, request: RequestBuilder, raise_error=True, **kwargs) -> Future[RequestResult]:
+    def fetch(self, request: BalancedHttpRequest, raise_error=True, **kwargs) -> Future[RequestResult]:
         future = Future()
 
         def handle_response(response) -> None:
@@ -346,11 +345,11 @@ class AIOHttpClientWrapper:
             url = yarl.URL(request)
             host = f'{url.host}:{url.port}'
             path = url.raw_path_qs
-            request = RequestBuilder(host, 'test', path, 'test_request', **kwargs)
+            request = BalancedHttpRequest(host, 'test', path, 'test_request', **kwargs)
         self.fetch_impl(request, handle_response)
         return future
 
-    def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
+    def fetch_impl(self, request: BalancedHttpRequest, callback: Callable[[RequestResult], None]):
         async def real_fetch():
             with (
                 set_contextvar(current_client_request, request),
