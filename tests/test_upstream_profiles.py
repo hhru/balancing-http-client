@@ -17,16 +17,25 @@ class TestUpstreamProfiles(TestBase, BalancingClientMixin):
 
     def create_request_balancer(self, profile):
         test_request = BalancedHttpRequest("test", "test-app", "/test", 'GET')
-        return self.request_balancer_builder.build(test_request, profile, self.create_execute_request_callback(),
-                                                   None, False, False, False, False)
+        return self.request_balancer_builder.build(
+            test_request, profile, self.create_execute_request_callback(), None, False
+        )
 
     def create_execute_request_callback(self):
         async def execute_request(test_request: BalancedHttpRequest) -> RequestResult:
             if test_request.host == self.servers[2].address:
                 url = yarl.URL(test_request.url)
-                client_response = ClientResponse(test_request.method, url, writer=None, continue100=None, timer=None,
-                                                 request_info=None, traces=None, loop=asyncio.get_event_loop(),
-                                                 session=None)
+                client_response = ClientResponse(
+                    test_request.method,
+                    url,
+                    writer=None,
+                    continue100=None,
+                    timer=None,
+                    request_info=None,
+                    traces=None,
+                    loop=asyncio.get_event_loop(),
+                    session=None,
+                )
                 client_response.status = 200
                 result = RequestResult(test_request, client_response.status, response=client_response, elapsed_time=1)
                 result.parse_response = False
@@ -49,8 +58,10 @@ class TestUpstreamProfiles(TestBase, BalancingClientMixin):
         request_balancer = self.create_request_balancer("two_tries")
         await request_balancer.execute()
 
-        expected_trace = "127.0.0.1:8081~599~Failed to connect to 127.0.0.1:8081 -> " \
-                         "127.0.0.1:8082~599~Failed to connect to 127.0.0.1:8082"
+        expected_trace = (
+            "127.0.0.1:8081~599~Failed to connect to 127.0.0.1:8081 -> "
+            "127.0.0.1:8082~599~Failed to connect to 127.0.0.1:8082"
+        )
         actual_trace = request_balancer.get_trace()
         assert actual_trace, expected_trace
 
@@ -58,8 +69,10 @@ class TestUpstreamProfiles(TestBase, BalancingClientMixin):
         request_balancer = self.create_request_balancer(None)
         await request_balancer.execute()
 
-        expected_trace = "127.0.0.1:8081~599~Failed to connect to 127.0.0.1:8081 -> " \
-                         "127.0.0.1:8082~599~Failed to connect to 127.0.0.1:8082 -> " \
-                         "127.0.0.1:8083~200~None"
+        expected_trace = (
+            "127.0.0.1:8081~599~Failed to connect to 127.0.0.1:8081 -> "
+            "127.0.0.1:8082~599~Failed to connect to 127.0.0.1:8082 -> "
+            "127.0.0.1:8083~200~None"
+        )
         actual_trace = request_balancer.get_trace()
         assert actual_trace, expected_trace

@@ -33,9 +33,6 @@ class RequestEngineBuilder(metaclass=abc.ABCMeta):
         execute_request,
         modify_http_request_hook,
         debug_enabled,
-        parse_response,
-        parse_on_error,
-        fail_fast,
     ) -> RequestEngine:
         raise NotImplementedError
 
@@ -50,9 +47,6 @@ class HttpClient:
         self,
         request: BalancedHttpRequest,
         profile: Optional[str] = None,
-        parse_response: bool = True,
-        parse_on_error: bool = True,
-        fail_fast: bool = False,
     ):
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -65,9 +59,6 @@ class HttpClient:
             self.http_client_impl.fetch,
             modify_http_request_hook,
             debug_enabled,
-            parse_response,
-            parse_on_error,
-            fail_fast,
         )
         return request_engine.execute()
 
@@ -89,7 +80,6 @@ class HttpClient:
         fail_fast=False,
         speculative_timeout_pct=None,
     ) -> Future[RequestResult]:
-
         return self.make_request(
             request=BalancedHttpRequest(
                 host=host,
@@ -103,11 +93,11 @@ class HttpClient:
                 max_timeout_tries=max_timeout_tries,
                 speculative_timeout_pct=speculative_timeout_pct,
                 follow_redirects=follow_redirects,
+                parse_response=parse_response,
+                parse_on_error=parse_on_error,
+                fail_fast=fail_fast,
             ),
             profile=profile,
-            parse_response=parse_response,
-            parse_on_error=parse_on_error,
-            fail_fast=fail_fast,
         )
 
     def get_url(
@@ -141,11 +131,11 @@ class HttpClient:
                 max_timeout_tries=max_timeout_tries,
                 speculative_timeout_pct=speculative_timeout_pct,
                 follow_redirects=follow_redirects,
+                parse_response=parse_response,
+                parse_on_error=parse_on_error,
+                fail_fast=fail_fast,
             ),
             profile=profile,
-            parse_response=parse_response,
-            parse_on_error=parse_on_error,
-            fail_fast=fail_fast,
         )
 
     def post_url(
@@ -185,11 +175,11 @@ class HttpClient:
                 idempotent=idempotent,
                 speculative_timeout_pct=speculative_timeout_pct,
                 follow_redirects=follow_redirects,
+                parse_response=parse_response,
+                parse_on_error=parse_on_error,
+                fail_fast=fail_fast,
             ),
             profile=profile,
-            parse_response=parse_response,
-            parse_on_error=parse_on_error,
-            fail_fast=fail_fast,
         )
 
     def put_url(
@@ -227,11 +217,11 @@ class HttpClient:
                 idempotent=idempotent,
                 speculative_timeout_pct=speculative_timeout_pct,
                 follow_redirects=follow_redirects,
+                parse_response=parse_response,
+                parse_on_error=parse_on_error,
+                fail_fast=fail_fast,
             ),
             profile=profile,
-            parse_response=parse_response,
-            parse_on_error=parse_on_error,
-            fail_fast=fail_fast,
         )
 
     def delete_url(
@@ -265,11 +255,11 @@ class HttpClient:
                 request_timeout=request_timeout,
                 max_timeout_tries=max_timeout_tries,
                 speculative_timeout_pct=speculative_timeout_pct,
+                parse_response=parse_response,
+                parse_on_error=parse_on_error,
+                fail_fast=fail_fast,
             ),
             profile=profile,
-            parse_response=parse_response,
-            parse_on_error=parse_on_error,
-            fail_fast=fail_fast,
         )
 
 
