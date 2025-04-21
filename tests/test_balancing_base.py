@@ -18,10 +18,13 @@ class TestBase:
         return sock, sock.getsockname()[1]
 
 
+_upstreams = {}
+
+
 class BalancingClientMixin:
     @pytest.fixture(scope="function", autouse=True)
     async def setup_http_client_factory(self):
-        self.request_balancer_builder = RequestBalancerBuilder({})
+        self.request_balancer_builder = RequestBalancerBuilder(upstream_getter=_upstreams.get)
         self.http_client_factory = HttpClientFactory('testapp', self.request_balancer_builder)
         self.balancing_client = self.http_client_factory.get_http_client()
         options.datacenter = 'test'
@@ -37,4 +40,4 @@ class BalancingClientMixin:
         self.servers = [Server(f'127.0.0.1:{port}', hostname='destHost', dc='test') for port in ports]
         upstream = Upstream('test', self.get_upstream_config(),
                             self.servers)
-        self.request_balancer_builder._upstreams[upstream.name] = upstream
+        _upstreams[upstream.name] = upstream

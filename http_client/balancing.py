@@ -1,5 +1,6 @@
 import asyncio
 import collections
+from collections.abc import Callable
 import logging
 import time
 from asyncio import Future
@@ -17,6 +18,7 @@ from http_client.request_response import (FailFastError,
                                           NoAvailableServerException,
                                           ResponseData)
 from http_client.util import utf8, weighted_sample
+from typing import Optional
 
 
 DOWNTIME_DETECTOR_WINDOW = 100
@@ -764,14 +766,14 @@ class UpstreamRequestBalancer(RequestBalancer):
 
 class RequestBalancerBuilder(RequestEngineBuilder):
 
-    def __init__(self, upstreams: dict[str, Upstream], statsd_client=None, kafka_producer=None):
-        self._upstreams = upstreams
+    def __init__(self, upstream_getter: Callable[[str], Optional[Upstream]], statsd_client=None, kafka_producer=None):
+        self.upstream_getter = upstream_getter
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
 
     def build(self, request: RequestBuilder, profile, execute_request, modify_http_request_hook, debug_enabled,
               parse_response, parse_on_error, fail_fast) -> RequestEngine:
-        upstream = self._upstreams.get(request.host)
+        upstream = self.upstream_getter(request.host)
         if upstream is None:
             return ExternalUrlRequestor(request, execute_request, modify_http_request_hook, debug_enabled,
                                         parse_response, parse_on_error, fail_fast,
