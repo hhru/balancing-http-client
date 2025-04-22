@@ -1,3 +1,9 @@
+-   name: 3.0.2
+    date: '2025-04-22T19:26:52.744120+03:00'
+    description: "Добавили метод make_request\r\n RequestBuilder переименован в BalancedHttpRequest"
+    instructions: ''
+    compatible: true
+
 -   name: 3.0.1
     date: '2025-04-21T13:22:50.532345+03:00'
     description: ''
