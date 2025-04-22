@@ -1,4 +1,5 @@
 import orjson
+from aiohttp import FormData
 
 try:
     import ujson as json
@@ -20,7 +21,7 @@ from lxml import etree
 from multidict import CIMultiDict
 
 from http_client.options import options
-from http_client.util import make_body, make_mfd, make_url, to_unicode, xml_to_dict, make_form_data
+from http_client.util import make_url, to_unicode, xml_to_dict, make_form_data
 
 USER_AGENT_HEADER = 'User-Agent'
 
@@ -49,7 +50,7 @@ class FailFastError(Exception):
         self.failed_result = failed_result
 
 
-class RequestBuilder:
+class BalancedHttpRequest:
     __slots__ = (
         'host',
         'path',
@@ -73,15 +74,16 @@ class RequestBuilder:
         'session_required',
         'request_time_left',
         'start_time',
-        'source_app',
+        'parse_response',
+        'parse_on_error',
+        'fail_fast',
     )
 
     def __init__(
         self,
         host: str,
-        source_app: str,
         path: str,
-        name: str,
+        name: str = None,
         method='GET',
         data=None,
         headers: Optional[LooseHeaders] = None,
@@ -93,9 +95,10 @@ class RequestBuilder:
         speculative_timeout_pct=None,
         follow_redirects=True,
         idempotent=True,
-        use_form_data=False,
+        parse_response=True,
+        parse_on_error=True,
+        fail_fast=False,
     ):
-        self.source_app = source_app
         self.host = host.rstrip('/')
         self.path: str = path if path.startswith('/') else '/' + path
         self.name = name
@@ -110,34 +113,28 @@ class RequestBuilder:
         self.speculative_timeout_pct = speculative_timeout_pct
         self.body = None
         self.start_time = None
+        self.parse_response = parse_response
+        self.parse_on_error = parse_on_error
+        self.fail_fast = fail_fast
         self.headers = CIMultiDict()
+
+        if content_type is not None:
+            self.headers['Content-Type'] = content_type
+
         if headers is not None:
             for key, value in headers.items():
                 self.headers.add(key, value if value is not None else '')
 
-        if source_app and not self.headers.get(USER_AGENT_HEADER):
-            self.headers[USER_AGENT_HEADER] = source_app
-
-        if self.method == 'POST':
-            if use_form_data:
-                self.body = make_form_data(data, files)
-            else:
-                if files:
-                    self.body, content_type = make_mfd(data, files)
+        if self.method in ('POST', 'PUT'):
+            if isinstance(data, dict):
+                if self.headers.get('Content-Type') == 'application/json':
+                    self.body = orjson.dumps(data)
                 else:
-                    self.body = make_body(data)
-
-                if content_type is None:
-                    content_type = self.headers.get('Content-Type', 'application/x-www-form-urlencoded')
-
-                self.headers['Content-Length'] = str(len(self.body))
-        elif self.method == 'PUT':
-            self.body = make_body(data)
+                    self.body = make_form_data(data, files)
+            else:
+                self.body = data
         else:
             self.path = make_url(self.path, **({} if data is None else data))
-
-        if content_type is not None:
-            self.headers['Content-Type'] = content_type
 
         self.upstream_name = self.host
         self.upstream_datacenter = None
@@ -151,6 +148,12 @@ class RequestBuilder:
             self.url = f'{self.host}{self.path}'
         else:
             self.url = f'http://{self.host}{self.path}'
+
+    @property
+    def raw_body(self):
+        if isinstance(self.body, FormData):
+            return self.body().decode()
+        return self.body
 
 
 def _parse_response(response_body, real_url, parser, response_type):
@@ -180,6 +183,8 @@ def _parse_response(response_body, real_url, parser, response_type):
 
         return DataParseError(reason=f'invalid {response_type}')
 
+
+RequestBuilder = BalancedHttpRequest
 
 _xml_parser = etree.XMLParser(strip_cdata=False)
 _parse_response_xml = partial(
@@ -224,7 +229,7 @@ class RequestResult:
 
     def __init__(
         self,
-        request: RequestBuilder,
+        request: BalancedHttpRequest,
         status_code: int,
         response: Optional[ClientResponse] = None,
         response_body: Optional[bytes] = None,
