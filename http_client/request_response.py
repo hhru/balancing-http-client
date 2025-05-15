@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from functools import partial
 from http.cookies import SimpleCookie
-from typing import Optional
+from typing import Generic, Optional, TypeVar
 
 import aiohttp
 from aiohttp.client_reqrep import ClientResponse
@@ -204,7 +204,10 @@ RESPONSE_CONTENT_TYPES = {
 }
 
 
-class RequestResult:
+T = TypeVar('T')
+
+
+class RequestResult(Generic[T]):
     __slots__ = (
         'name',
         'request',
@@ -246,7 +249,7 @@ class RequestResult:
         self._response: Optional[ClientResponse] = response
         self._response_body: Optional[bytes] = response_body
         self._content_type: Optional[str] = None
-        self._data = None
+        self._data: Optional[T] = None
         self._data_parse_error: Optional[DataParseError] = None
 
     def __repr__(self):
@@ -305,7 +308,7 @@ class RequestResult:
         return SimpleCookie()
 
     @property
-    def data(self):
+    def data(self) -> Optional[T]:
         self._parse_data()
         return self._data
 
