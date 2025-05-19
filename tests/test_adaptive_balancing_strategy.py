@@ -1,4 +1,5 @@
-from http_client.balancing import Server, AdaptiveBalancingStrategy, AdaptiveBalancingState, Upstream, BalancingState
+from http_client.balancing import (Server, AdaptiveBalancingStrategy, AdaptiveBalancingState, Upstream, BalancingState,
+                                   RESPONSE_TIME_TRACKER_WINDOW)
 from http_client.request_response import RequestResult, RequestBuilder
 from aiohttp.client_reqrep import ClientResponse
 from aiohttp.client_exceptions import ServerTimeoutError
@@ -12,21 +13,53 @@ import pytest
 
 class TestAdaptiveBalancingStrategy:
     def test_should_pick_less_than_all(self):
-        servers = [Server("test1", "destHost", 1, None), Server("test2", "destHost", 1, None),
-                   Server("test3", "destHost", 1, None)]
+        servers = generate_servers(3)
         retries_count = 2
         balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, retries_count)
         assert len(balanced_servers) == retries_count
 
     def test_should_pick_different(self):
-        servers = [Server("test1", "destHost", 1, None), Server("test2", "destHost", 1, None),
-                   Server("test3", "destHost", 1, None)]
+        servers = generate_servers(3)
         balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, len(servers))
         assert ['test1', 'test2', 'test3'] == sorted(list(map(lambda s: s.address, balanced_servers)))
 
+    def test_should_pick_same_server_several_times(self):
+        servers = generate_servers(1)
+        balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, 3)
+        assert ['test1', 'test1', 'test1'] == list(map(lambda s: s.address, balanced_servers))
+
+    def test_should_pick_as_much_as_requested(self):
+        servers = generate_servers(3)
+        balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, 5)
+
+        assert len(balanced_servers) == 5
+        addresses = list(map(lambda s: s.address, balanced_servers))
+        assert addresses[0:2] == addresses[3:5], 'Extra servers should be repeated in the same order'
+
+    def test_should_return_empty(self):
+        assert AdaptiveBalancingStrategy.get_servers(generate_servers(3), 0) == []
+        assert AdaptiveBalancingStrategy.get_servers([], 2) == []
+
+    def test_should_warm_up(self):
+        servers = generate_servers(2)
+        retries_count = 2
+        balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, retries_count)
+
+        response_time_tracker1 = balanced_servers[0].response_time_tracker
+        response_time_tracker2 = balanced_servers[1].response_time_tracker
+        assert response_time_tracker1.is_warm_up
+        assert response_time_tracker2.is_warm_up
+
+        for _ in range(RESPONSE_TIME_TRACKER_WINDOW):
+            response_time_tracker1.add_response_time(random.randrange(100, 200))
+
+        balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, retries_count)
+        warm_up1 = balanced_servers[0].response_time_tracker.is_warm_up
+        warm_up2 = balanced_servers[1].response_time_tracker.is_warm_up
+        assert warm_up1 != warm_up2, 'Only one server should be warmed up'
+
     def test_same_load(self):
-        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
-                   Server('test3', "destHost", 1, 'dc1')]
+        servers = generate_servers(3)
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -42,8 +75,7 @@ class TestAdaptiveBalancingStrategy:
         assert 0.31 <= server_statistics['test3']['rate'] <= 0.35
 
     def test_one_slow_server(self):
-        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
-                   Server('test3', "destHost", 1, 'dc1')]
+        servers = generate_servers(3)
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -62,8 +94,7 @@ class TestAdaptiveBalancingStrategy:
         assert 0.20 <= server_statistics['test3']['rate'] <= 0.24
 
     def test_one_fail_server(self):
-        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
-                   Server('test3', "destHost", 1, 'dc1')]
+        servers = generate_servers(3)
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -82,8 +113,7 @@ class TestAdaptiveBalancingStrategy:
         assert 0.0 <= server_statistics['test3']['rate'] <= 0.01
 
     def test_one_restarted_server(self):
-        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
-                   Server('test3', "destHost", 1, 'dc1')]
+        servers = generate_servers(3)
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
 
@@ -112,11 +142,7 @@ class TestAdaptiveBalancingStrategy:
 
     @pytest.mark.skip(reason='for dev purpose')
     def test_speed(self):
-        servers = [Server('test1', "destHost", 1, 'dc1'), Server('test2', "destHost", 1, 'dc1'),
-                   Server('test3', "destHost", 1, 'dc1'),
-                   Server('test4', "destHost", 1, 'dc1'), Server('test5', "destHost", 1, 'dc1'),
-                   Server('test6', "destHost", 1, 'dc1'),
-                   Server('test7', "destHost", 1, 'dc1')]
+        servers = generate_servers(7)
         upstream = Upstream('my_backend', {}, servers)
         upstream.datacenter = 'dc1'
         servers_hits = {server.address: {'ok': 0, 'fail': 0} for server in upstream.servers}
@@ -142,6 +168,10 @@ class TestAdaptiveBalancingStrategy:
         print(f'adaptive - {res} sec')
         res = timeit.timeit(make_many_requests, number=1)
         print(f'simple - {res} sec')
+
+
+def generate_servers(n: int) -> list[Server]:
+    return [Server(f'test{i}', 'destHost', 1, 'dc1') for i in range(1, n + 1)]
 
 
 def make_requests(upstream, response_time_func, response_type_func):

@@ -33,16 +33,15 @@ http_client_logger = logging.getLogger('http_client')
 
 class DowntimeDetector:
     def __init__(self, max_length=DOWNTIME_DETECTOR_WINDOW, initial_live_percent=INITIAL_LIVE_PERCENT):
+        if initial_live_percent < 0 or initial_live_percent > 100:
+            raise ValueError(f'Invalid initial_live_percent value: {initial_live_percent}')
+
         self.max_length = max_length
-        if initial_live_percent > 0:
-            self.healths = collections.deque(maxlen=max_length)
-            ones = max_length * initial_live_percent // 100
-            self.healths.extend([0] * (max_length - ones))
-            self.healths.extend([1] * ones)
-            self.health = ones
-        else:
-            self.healths = collections.deque([1], maxlen=max_length)
-            self.health = max_length
+        self.healths = collections.deque(maxlen=max_length)
+        ones = max_length * initial_live_percent // 100
+        self.healths.extend([0] * (max_length - ones))
+        self.healths.extend([1] * ones)
+        self.health = ones
 
     def add_fail(self):
         self.health -= self.healths[0]
@@ -58,15 +57,15 @@ class ResponseTimeTracker:
         self.is_warm_up = True
         self.total = 0
         self.max_length = max_length
-        self.response_times = collections.deque([0], max_length)
-        self.mean = 1
+        self.response_times = collections.deque(maxlen=max_length)
+        self.mean = 0
 
     def add_response_time(self, time_ms: int):
-        self.total += time_ms - self.response_times[0]
-        self.mean = (self.total // self.max_length) or 1
+        self.total += time_ms - (0 if self.is_warm_up else self.response_times[0])
+        self.mean = self.total // self.max_length
 
         self.response_times.append(time_ms)
-        if len(self.response_times) == self.max_length:
+        if len(self.response_times) == self.max_length and self.is_warm_up:
             self.is_warm_up = False
 
 
@@ -365,17 +364,22 @@ class BalancingStrategy:
 class AdaptiveBalancingStrategy:
     @staticmethod
     def get_servers(servers: List[Server], max_tries: int) -> List[Server]:
+        if max_tries < 0:
+            raise ValueError('max_tries should not be negative')
+
         n = len(servers)
         count = min(n, max_tries)
+        if count == 0:
+            return []
 
-        if n <= 1:
-            return servers
+        if n == 1:
+            return servers * max_tries
 
         # gather statistics
         warmups = None
         sum_of_means = 0
         warmup_count = 0
-        min_mean = 100500
+        min_mean = 2 ** 30
         max_mean = 0
         for i, server in enumerate(servers):
             tracker: ResponseTimeTracker = server.response_time_tracker
@@ -419,7 +423,15 @@ class AdaptiveBalancingStrategy:
             scores.append(score)
             total += score
 
-        return weighted_sample(servers, scores, count, total)
+        result = weighted_sample(servers, scores, count, total)
+
+        if max_tries == count:
+            return result
+
+        for j in range(max_tries - count):
+            result.append(result[j % count])
+
+        return result
 
 
 class ImmediateResultOrPreparedRequest:
@@ -476,8 +488,8 @@ class AdaptiveBalancingState(BalancingState):
                 host, datacenter, hostname = self.acquire_adaptive_server()
                 self.set_current_server(host, datacenter, hostname)
                 return
-            except Exception as exc:
-                http_client_logger.error('failed to acquire adaptive servers, falling back to nonadaptive %s', exc)
+            except Exception:
+                http_client_logger.exception('failed to acquire adaptive servers, falling back to nonadaptive')
                 self.adaptive_failed = True
         super().acquire_server()
 
@@ -491,7 +503,7 @@ class AdaptiveBalancingState(BalancingState):
             entries = self.upstream.acquire_adaptive_servers(self.profile)
             self.server_entry_iterator = iter(entries)
 
-        return next(self.server_entry_iterator)
+        return next(self.server_entry_iterator, (None, None, None))
 
 
 class RequestBalancer(RequestEngine):
