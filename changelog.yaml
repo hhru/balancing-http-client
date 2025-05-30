@@ -1,3 +1,9 @@
+-   name: 3.0.5
+    date: '2025-05-30T15:01:52.467471+03:00'
+    description: Исправление ошибок в адаптивной балансировке.
+    instructions: ''
+    compatible: true
+
 -   name: 3.0.4
     date: '2025-05-15T12:40:55.910386+03:00'
     description: ''
