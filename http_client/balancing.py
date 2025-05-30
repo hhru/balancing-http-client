@@ -6,7 +6,6 @@ import time
 from asyncio import Future
 from collections import OrderedDict
 from random import random
-from typing import List
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
@@ -232,9 +231,9 @@ class Upstream:
 
     DEFAULT_PROFILE = "default"
 
-    def __init__(self, name, config_by_profile, servers):
+    def __init__(self, name: str, config_by_profile: dict[str, UpstreamConfig], servers: list[Server]):
         self.name = name
-        self.servers: List[Server] = []
+        self.servers: list[Server] = []
         self.config_by_profile = config_by_profile if config_by_profile \
             else {Upstream.DEFAULT_PROFILE: self.get_default_config()}
         self._update_servers(servers)
@@ -363,7 +362,7 @@ class BalancingStrategy:
 
 class AdaptiveBalancingStrategy:
     @staticmethod
-    def get_servers(servers: List[Server], max_tries: int) -> List[Server]:
+    def get_servers(servers: list[Server], max_tries: int) -> list[Server]:
         if max_tries < 0:
             raise ValueError('max_tries should not be negative')
 
