@@ -392,7 +392,7 @@ class AdaptiveBalancingStrategy:
                 warmups[i] = True
                 warmup_count += 1
             else:
-                mean = tracker.mean
+                mean = max(1, tracker.mean)
                 if mean < min_mean:
                     min_mean = mean
                 if mean > max_mean:
@@ -413,7 +413,7 @@ class AdaptiveBalancingStrategy:
             if warmups is not None and warmups[i]:
                 inverted_time = round(warmup_score)
             else:
-                inverted_time = round(min_mean * max_mean / server.response_time_tracker.mean)
+                inverted_time = round(min_mean * max_mean / max(1, server.response_time_tracker.mean))
 
             score = inverted_time * max(server.downtime_detector.health, LOWEST_HEALTH)
             if options.log_adaptive_statistics:
