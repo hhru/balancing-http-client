@@ -8,6 +8,16 @@ version = '3.0.7'
 description = 'Balancing http client around aiohttp'
 authors = ['architecture <arch-team@hh.ru>']
 
+[[tool.poetry.source]]
+name = "pypi-mirror"
+url = "https://devpi.pyn.ru/root/pypi/+simple/"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "hhdev"
+url = "https://devpi.pyn.ru/hh/hhdev/+simple/"
+priority = "explicit"
+
 [tool.poetry.dependencies]
 python = '~=3.9'
 aiohttp = '>=3.8.3, <4.0.0'
