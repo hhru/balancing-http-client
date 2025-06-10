@@ -3,7 +3,8 @@ import inspect
 from collections import namedtuple
 from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import Mock, patch
-from uuid import uuid4
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from aiohttp import ClientConnectionError, ClientResponse, ClientSession, hdrs, http
 from aiohttp.helpers import TimerNoop
@@ -14,6 +15,7 @@ from aiohttp.client_proto import ResponseHandler
 from aiohttp import StreamReader
 from multidict import MultiDict
 from urllib.parse import parse_qsl, urlencode
+from http_client.util import utf8
 
 try:
     from aiohttp import RequestInfo
@@ -33,6 +35,13 @@ except ImportError:
 RequestCall = namedtuple('RequestCall', ['args', 'kwargs'])
 
 
+@dataclass
+class ProxyRequest:
+    url: URL
+    body: bytes
+    method: str
+
+
 class MockedRequest:
     def __init__(
         self, url: Union[URL, str, Pattern],
@@ -42,6 +51,7 @@ class MockedRequest:
         exception: Optional[Exception] = None,
         headers: Optional[Dict] = None,
         repeat: bool = False,
+        response_function: Callable = None,
     ):
         self.url_or_pattern: Union[URL, Pattern]
         if isinstance(url, Pattern):
@@ -53,6 +63,7 @@ class MockedRequest:
         self.status = status
         self.body = body if isinstance(body, bytes) else str.encode(body)
         self.exception = exception
+        self.response_function = response_function
         self.headers = headers
         self.repeat = repeat
         try:
@@ -89,9 +100,16 @@ class MockedRequest:
         assert isinstance(self.url_or_pattern, Pattern)
         return bool(self.url_or_pattern.match(str(url_pattern)))
 
-    async def build_response(self, url: URL, request_headers=None) -> Union[ClientResponse, Exception]:
+    async def build_response(self, url: URL, **kwargs) -> Union[ClientResponse, Exception]:
+        request_headers = kwargs.get("headers")
+
         if self.exception is not None:
             return self.exception
+
+        if self.response_function is not None:
+            url = url
+            body = kwargs.get('data')
+            return self.response_function(ProxyRequest(url, body, self.method.upper()))
 
         if request_headers is None:
             request_headers = {}
@@ -139,7 +157,7 @@ class MockHttpClient(object):
 
     def __enter__(self) -> 'MockHttpClient':
         self._responses: List[ClientResponse] = []
-        self._matches: Dict[str, MockedRequest] = {}
+        self._matches: list[MockedRequest] = []
         self.patcher.start()
         self.patcher.return_value = self._request_mock
         return self
@@ -160,15 +178,20 @@ class MockHttpClient(object):
         exception: Optional[Exception] = None,
         headers: Optional[Dict] = None,
         repeat: bool = False,
+        response_function=None,
     ) -> None:
-        self._matches[str(uuid4())] = MockedRequest(
-            url,
-            method=method,
-            status=status,
-            body=body,
-            exception=exception,
-            headers=headers,
-            repeat=repeat,
+        self._matches.insert(
+            0,
+            MockedRequest(
+                url,
+                method=method,
+                status=status,
+                body=body,
+                exception=exception,
+                headers=headers,
+                repeat=repeat,
+                response_function=response_function,
+            )
         )
 
     async def _request_mock(
@@ -228,15 +251,15 @@ class MockHttpClient(object):
     ) -> Optional[ClientResponse]:
         history = []
         while True:
-            for key, mocked_request in self._matches.items():
+            for mocked_request in self._matches:
                 if mocked_request.match(method, url):
-                    response_or_exc = await mocked_request.build_response(url, request_headers=kwargs.get("headers"))
+                    response_or_exc = await mocked_request.build_response(url, **kwargs)
                     break
             else:
                 return None
 
             if mocked_request.repeat is False:
-                del self._matches[key]
+                self._matches.remove(mocked_request)
 
             if self.is_exception(response_or_exc):
                 raise response_or_exc
@@ -417,3 +440,43 @@ def merge_params(url: Union[URL, str], params: Optional[Dict] = None) -> URL:
 def normalize_url(url: Union[URL, str]) -> URL:
     url = URL(url)
     return url.with_query(urlencode(sorted(parse_qsl(url.query_string))))
+
+
+def get_response_stub(
+        request: ProxyRequest, code: int = http.HTTPStatus.OK, headers=None, buffer=None
+) -> ClientResponse:
+    buffer = utf8(buffer) if buffer else None
+    kwargs = {}  # type: Dict[str, Any]
+
+    loop = Mock()
+    loop.get_debug = Mock()
+    loop.get_debug.return_value = True
+    kwargs["request_info"] = RequestInfo(
+        url=request.url,
+        method=request.method,
+        headers=CIMultiDictProxy(CIMultiDict({})),
+    )
+    kwargs["writer"] = None
+    kwargs["continue100"] = None
+    kwargs["timer"] = TimerNoop()
+    kwargs["traces"] = []
+    kwargs["loop"] = loop
+    kwargs["session"] = None
+
+    if headers is None:
+        headers = {}
+    _headers = CIMultiDict(**headers)
+    raw_headers = tuple(
+        [(k.encode("utf8"), v.encode("utf8")) for k, v in _headers.items()]
+    )
+
+    resp = ClientResponse(request.method, request.url, **kwargs)
+    resp._headers = _headers
+    resp._raw_headers = raw_headers
+    resp.status = code
+    resp.reason = http.RESPONSES[code][0]
+    resp.content = StreamReader(ResponseHandler(loop=loop), limit=2**16, loop=loop)
+    resp.content.feed_data(buffer)
+    resp.content.feed_eof()
+
+    return resp

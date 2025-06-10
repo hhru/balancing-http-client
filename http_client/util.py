@@ -5,6 +5,7 @@ from uuid import uuid4
 import random
 from contextlib import contextmanager
 from collections.abc import Iterator
+from typing import Union
 
 from aiohttp import FormData
 
@@ -19,7 +20,9 @@ def to_unicode(value: Any) -> str:
     return value.decode('utf-8')
 
 
-def utf8(value: str) -> bytes:
+def utf8(value: Union[str, bytes, None]) -> bytes:
+    if isinstance(value, (bytes, type(None))):
+        return value
     if not isinstance(value, str):
         raise TypeError('Expected unicode str; got {type(value)}')
     return value.encode('utf-8')
