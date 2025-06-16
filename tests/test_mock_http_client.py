@@ -1,5 +1,5 @@
-from tests.test_balancing_base import BalancingClientMixin, TestBase
 from http_client.testing import MockHttpClient
+from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
 class TestMockHttpClient(TestBase, BalancingClientMixin):

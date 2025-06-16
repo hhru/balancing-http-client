@@ -1,31 +1,29 @@
 import copy
 import inspect
 from collections import namedtuple
-from typing import Any, Dict, List, Optional, Tuple, Union
-from unittest.mock import Mock, patch
 from collections.abc import Callable
 from dataclasses import dataclass
-
-from aiohttp import ClientConnectionError, ClientResponse, ClientSession, hdrs, http
-from aiohttp.helpers import TimerNoop
-from multidict import CIMultiDict, CIMultiDictProxy
-from yarl import URL
 from re import Pattern
-from aiohttp.client_proto import ResponseHandler
-from aiohttp import StreamReader
-from multidict import MultiDict
+from typing import Any, Dict, List, Optional, Tuple, Union
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qsl, urlencode
+
+from aiohttp import ClientConnectionError, ClientResponse, ClientSession, StreamReader, hdrs, http
+from aiohttp.client_proto import ResponseHandler
+from aiohttp.helpers import TimerNoop
+from multidict import CIMultiDict, CIMultiDictProxy, MultiDict
+from yarl import URL
+
 from http_client.util import utf8
 
 try:
     from aiohttp import RequestInfo
 except ImportError:
-    class RequestInfo(object):
-        __slots__ = ('url', 'method', 'headers', 'real_url')
 
-        def __init__(
-            self, url: URL, method: str, headers: Dict, real_url: str
-        ):
+    class RequestInfo:
+        __slots__ = ('headers', 'method', 'real_url', 'url')
+
+        def __init__(self, url: URL, method: str, headers: Dict, real_url: str):
             self.url = url
             self.method = method
             self.headers = headers
@@ -44,7 +42,8 @@ class ProxyRequest:
 
 class MockedRequest:
     def __init__(
-        self, url: Union[URL, str, Pattern],
+        self,
+        url: Union[URL, str, Pattern],
         method: str = hdrs.METH_GET,
         status: int = 200,
         body: Union[str, bytes] = '',
@@ -101,7 +100,7 @@ class MockedRequest:
         return bool(self.url_or_pattern.match(str(url_pattern)))
 
     async def build_response(self, url: URL, **kwargs) -> Union[ClientResponse, Exception]:
-        request_headers = kwargs.get("headers")
+        request_headers = kwargs.get('headers')
 
         if self.exception is not None:
             return self.exception
@@ -143,13 +142,13 @@ class MockedRequest:
         resp._raw_headers = raw_headers
         resp.status = self.status
         resp.reason = self.reason
-        resp.content = StreamReader(ResponseHandler(loop=loop), limit=2 ** 16, loop=loop)
+        resp.content = StreamReader(ResponseHandler(loop=loop), limit=2**16, loop=loop)
         resp.content.feed_data(self.body)
         resp.content.feed_eof()
         return resp
 
 
-class MockHttpClient(object):
+class MockHttpClient:
     def __init__(self, passthrough=None):
         self._passthrough = passthrough if passthrough is not None else []
         self.patcher = patch('aiohttp.client.ClientSession._request', side_effect=self._request_mock, autospec=True)
@@ -191,15 +190,11 @@ class MockHttpClient(object):
                 headers=headers,
                 repeat=repeat,
                 response_function=response_function,
-            )
+            ),
         )
 
     async def _request_mock(
-        self,
-        orig_self: ClientSession,
-        method: str, url: Union[URL, str],
-        *args: Tuple,
-        **kwargs: Any
+        self, orig_self: ClientSession, method: str, url: Union[URL, str], *args: Tuple, **kwargs: Any
     ) -> ClientResponse:
         """Return mocked response object or raise connection error."""
         if orig_self.closed:
@@ -210,9 +205,7 @@ class MockHttpClient(object):
         url_str = str(url)
         for prefix in self._passthrough:
             if url_str.startswith(prefix):
-                return await self.patcher.temp_original(
-                    orig_self, method, url_origin, *args, **kwargs
-                )
+                return await self.patcher.temp_original(orig_self, method, url_origin, *args, **kwargs)
 
         key = (method, url)
         self.requests.setdefault(key, [])
@@ -222,9 +215,7 @@ class MockHttpClient(object):
         response = await self.match(method, url, **kwargs)
 
         if response is None:
-            raise ClientConnectionError(
-                'Connection refused: {} {}'.format(method, url)
-            )
+            raise ClientConnectionError(f'Connection refused: {method} {url}')
         self._responses.append(response)
 
         # Automatically call response.raise_for_status() on a request if the
@@ -234,20 +225,14 @@ class MockHttpClient(object):
         # raise_for_status=False.
         raise_for_status = kwargs.get('raise_for_status')
         if raise_for_status is None:
-            raise_for_status = getattr(
-                orig_self, '_raise_for_status', False
-            )
+            raise_for_status = getattr(orig_self, '_raise_for_status', False)
         if raise_for_status:
             response.raise_for_status()
 
         return response
 
     async def match(
-        self,
-        method: str,
-        url: URL,
-        allow_redirects: bool = True,
-        **kwargs: Any
+        self, method: str, url: URL, allow_redirects: bool = True, **kwargs: Any
     ) -> Optional[ClientResponse]:
         history = []
         while True:
@@ -286,81 +271,60 @@ class MockHttpClient(object):
         return response
 
     def assert_not_called(self):
-        """assert that the mock was never called.
-        """
+        """Assert that the mock was never called."""
         if len(self.requests) != 0:
-            msg = ("Expected '%s' to not have been called. Called %s times."
-                   % (self.__class__.__name__,
-                      len(self._responses)))
+            msg = "Expected '%s' to not have been called. Called %s times." % (
+                self.__class__.__name__,
+                len(self._responses),
+            )
             raise AssertionError(msg)
 
     def assert_called(self):
-        """assert that the mock was called at least once.
-        """
+        """Assert that the mock was called at least once."""
         if len(self.requests) == 0:
-            msg = ("Expected '%s' to have been called."
-                   % (self.__class__.__name__,))
+            msg = "Expected '%s' to have been called." % (self.__class__.__name__,)
             raise AssertionError(msg)
 
     def assert_called_once(self):
-        """assert that the mock was called only once.
-        """
+        """Assert that the mock was called only once."""
         call_count = len(self.requests)
         if call_count == 1:
             call_count = len(list(self.requests.values())[0])
         if not call_count == 1:
-            msg = ("Expected '%s' to have been called once. Called %s times."
-                   % (self.__class__.__name__,
-                      call_count))
+            msg = "Expected '%s' to have been called once. Called %s times." % (self.__class__.__name__, call_count)
 
             raise AssertionError(msg)
 
-    def assert_called_with(
-        self,
-        url: Union[URL, str, Pattern],
-        method: str = hdrs.METH_GET,
-        *args: Any,
-        **kwargs: Any
-    ):
-        """assert that the last call was made with the specified arguments.
+    def assert_called_with(self, url: Union[URL, str, Pattern], method: str = hdrs.METH_GET, *args: Any, **kwargs: Any):
+        """
+        Assert that the last call was made with the specified arguments.
 
         Raises an AssertionError if the args and keyword args passed in are
-        different to the last call to the mock."""
+        different to the last call to the mock.
+        """
         url = normalize_url(merge_params(url, kwargs.get('params')))
         method = method.upper()
         key = (method, url)
         try:
             expected = self.requests[key][-1]
         except KeyError:
-            expected_string = self._format_call_signature(
-                url, method=method, *args, **kwargs
-            )
-            raise AssertionError(
-                '%s call not found' % expected_string
-            )
+            expected_string = self._format_call_signature(url, method=method, *args, **kwargs)
+            raise AssertionError('%s call not found' % expected_string)
         actual = self._build_request_call(method, *args, **kwargs)
         if not expected == actual:
             expected_string = self._format_call_signature(
                 expected,
             )
-            actual_string = self._format_call_signature(
-                actual
-            )
-            raise AssertionError(
-                '%s != %s' % (expected_string, actual_string)
-            )
+            actual_string = self._format_call_signature(actual)
+            raise AssertionError('%s != %s' % (expected_string, actual_string))
 
-    def assert_any_call(
-        self,
-        url: Union[URL, str, Pattern],
-        method: str = hdrs.METH_GET,
-        *args: Any,
-        **kwargs: Any
-    ):
-        """assert the mock has been called with the specified arguments.
+    def assert_any_call(self, url: Union[URL, str, Pattern], method: str = hdrs.METH_GET, *args: Any, **kwargs: Any):
+        """
+        Assert the mock has been called with the specified arguments.
         The assert passes if the mock has *ever* been called, unlike
         `assert_called_with` and `assert_called_once_with` that only pass if
-        the call is the most recent one."""
+        the call is the most recent one.
+        """
         url = normalize_url(merge_params(url, kwargs.get('params')))
         method = method.upper()
         key = (method, url)
@@ -368,17 +332,15 @@ class MockHttpClient(object):
         try:
             self.requests[key]
         except KeyError:
-            expected_string = self._format_call_signature(
-                url, method=method, *args, **kwargs
-            )
-            raise AssertionError(
-                '%s call not found' % expected_string
-            )
+            expected_string = self._format_call_signature(url, method=method, *args, **kwargs)
+            raise AssertionError('%s call not found' % expected_string)
 
     def assert_called_once_with(self, *args: Any, **kwargs: Any):
-        """assert that the mock was called once with the specified arguments.
+        """
+        Assert that the mock was called once with the specified arguments.
         Raises an AssertionError if the args and keyword args passed in are
-        different to the only call to the mock."""
+        different to the only call to the mock.
+        """
         self.assert_called_once()
         self.assert_called_with(*args, **kwargs)
 
@@ -386,9 +348,7 @@ class MockHttpClient(object):
         message = '%s(%%s)' % self.__class__.__name__ or 'mock'
         formatted_args = ''
         args_string = ', '.join([repr(arg) for arg in args])
-        kwargs_string = ', '.join([
-            '%s=%r' % (key, value) for key, value in kwargs.items()
-        ])
+        kwargs_string = ', '.join(['%s=%r' % (key, value) for key, value in kwargs.items()])
         if args_string:
             formatted_args = args_string
         if kwargs_string:
@@ -404,18 +364,11 @@ class MockHttpClient(object):
             parent_classes = set(inspect.getmro(resp_or_exc))
             if {Exception, BaseException} & parent_classes:
                 return True
-        else:
-            if isinstance(resp_or_exc, (Exception, BaseException)):
-                return True
+        elif isinstance(resp_or_exc, (Exception, BaseException)):
+            return True
         return False
 
-    def _build_request_call(
-        self,
-        method: str = hdrs.METH_GET,
-        *args: Any,
-        allow_redirects: bool = True,
-        **kwargs: Any
-    ):
+    def _build_request_call(self, method: str = hdrs.METH_GET, *args: Any, allow_redirects: bool = True, **kwargs: Any):
         kwargs.setdefault('allow_redirects', allow_redirects)
         if method == 'POST':
             kwargs.setdefault('data', None)
@@ -443,7 +396,7 @@ def normalize_url(url: Union[URL, str]) -> URL:
 
 
 def get_response_stub(
-        request: ProxyRequest, code: int = http.HTTPStatus.OK, headers=None, buffer=None
+    request: ProxyRequest, code: int = http.HTTPStatus.OK, headers=None, buffer=None
 ) -> ClientResponse:
     buffer = utf8(buffer) if buffer else None
     kwargs = {}  # type: Dict[str, Any]
@@ -451,24 +404,22 @@ def get_response_stub(
     loop = Mock()
     loop.get_debug = Mock()
     loop.get_debug.return_value = True
-    kwargs["request_info"] = RequestInfo(
+    kwargs['request_info'] = RequestInfo(
         url=request.url,
         method=request.method,
         headers=CIMultiDictProxy(CIMultiDict({})),
     )
-    kwargs["writer"] = None
-    kwargs["continue100"] = None
-    kwargs["timer"] = TimerNoop()
-    kwargs["traces"] = []
-    kwargs["loop"] = loop
-    kwargs["session"] = None
+    kwargs['writer'] = None
+    kwargs['continue100'] = None
+    kwargs['timer'] = TimerNoop()
+    kwargs['traces'] = []
+    kwargs['loop'] = loop
+    kwargs['session'] = None
 
     if headers is None:
         headers = {}
     _headers = CIMultiDict(**headers)
-    raw_headers = tuple(
-        [(k.encode("utf8"), v.encode("utf8")) for k, v in _headers.items()]
-    )
+    raw_headers = tuple([(k.encode('utf8'), v.encode('utf8')) for k, v in _headers.items()])
 
     resp = ClientResponse(request.method, request.url, **kwargs)
     resp._headers = _headers

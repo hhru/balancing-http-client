@@ -1,11 +1,10 @@
 import mimetypes
-from typing import Any, Dict, List
+import random
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, Dict, List, Union
 from urllib.parse import urlencode
 from uuid import uuid4
-import random
-from contextlib import contextmanager
-from collections.abc import Iterator
-from typing import Union
 
 from aiohttp import FormData
 
@@ -64,7 +63,7 @@ def make_url(base: str, **query_args) -> str:
     qs = make_qs(query_args)
 
     if qs:
-        return f"{base}{'&' if '?' in base else '?'}{qs}"
+        return f'{base}{"&" if "?" in base else "?"}{qs}'
     else:
         return base
 

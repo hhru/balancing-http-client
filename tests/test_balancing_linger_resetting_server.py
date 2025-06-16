@@ -5,8 +5,8 @@ import time
 from http import HTTPStatus
 
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
@@ -16,7 +16,7 @@ def linger_resetting_server(sock):
     while True:
         try:
             client_sock, client_addr = sock.accept()
-            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
             time.sleep(0.1)
             client_sock.recv(1024)  # got whole request
         except (BlockingIOError, OSError):
@@ -27,7 +27,7 @@ def linger_resetting_server(sock):
 
 
 class TestLingerResettingServer(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.resetting_server_socket, resetting_server_port = self.bind_unused_port()
         resetting_server_thread = threading.Thread(target=linger_resetting_server, args=(self.resetting_server_socket,))

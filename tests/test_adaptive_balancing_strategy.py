@@ -1,14 +1,22 @@
-from http_client.balancing import (Server, AdaptiveBalancingStrategy, AdaptiveBalancingState, Upstream, BalancingState,
-                                   RESPONSE_TIME_TRACKER_WINDOW)
-from http_client.request_response import RequestResult, RequestBuilder
-from aiohttp.client_reqrep import ClientResponse
-from aiohttp.client_exceptions import ServerTimeoutError
 import asyncio
-import yarl
+import random
 import timeit
 from functools import partial
-import random
+
 import pytest
+import yarl
+from aiohttp.client_exceptions import ServerTimeoutError
+from aiohttp.client_reqrep import ClientResponse
+
+from http_client.balancing import (
+    RESPONSE_TIME_TRACKER_WINDOW,
+    AdaptiveBalancingState,
+    AdaptiveBalancingStrategy,
+    BalancingState,
+    Server,
+    Upstream,
+)
+from http_client.request_response import RequestBuilder, RequestResult
 
 
 class TestAdaptiveBalancingStrategy:
@@ -21,12 +29,12 @@ class TestAdaptiveBalancingStrategy:
     def test_should_pick_different(self):
         servers = generate_servers(3)
         balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, len(servers))
-        assert ['test1', 'test2', 'test3'] == sorted(list(map(lambda s: s.address, balanced_servers)))
+        assert sorted(list(map(lambda s: s.address, balanced_servers))) == ['test1', 'test2', 'test3']
 
     def test_should_pick_same_server_several_times(self):
         servers = generate_servers(1)
         balanced_servers = AdaptiveBalancingStrategy.get_servers(servers, 3)
-        assert ['test1', 'test1', 'test1'] == list(map(lambda s: s.address, balanced_servers))
+        assert list(map(lambda s: s.address, balanced_servers)) == ['test1', 'test1', 'test1']
 
     def test_should_pick_as_much_as_requested(self):
         servers = generate_servers(3)
@@ -183,7 +191,7 @@ def make_requests(upstream, response_time_func, response_type_func):
         max_tries = upstream_config.max_tries
         execute_request_with_retry(state, max_tries, servers_hits, response_time_func, response_type_func)
 
-    for server in servers_hits.keys():
+    for server in servers_hits:
         servers_hits[server]['rate'] = servers_hits[server]['ok'] / n_requests
     return servers_hits
 
@@ -218,12 +226,25 @@ def execute_request_with_retry(state, tries_left, servers_hits, response_time_fu
 def make_result_object(request, response_time_s, response_type) -> RequestResult:
     if isinstance(response_type, int):
         url = yarl.URL(request.url)
-        client_response = ClientResponse(request.method, url, writer=None, continue100=None, timer=None,
-                                         request_info=None, traces=None, loop=asyncio.get_event_loop(),
-                                         session=None)
+        client_response = ClientResponse(
+            request.method,
+            url,
+            writer=None,
+            continue100=None,
+            timer=None,
+            request_info=None,
+            traces=None,
+            loop=asyncio.get_event_loop(),
+            session=None,
+        )
         client_response.status = response_type
-        result = RequestResult(request, client_response.status, response=client_response, elapsed_time=response_time_s,
-                               parse_response=False)
+        result = RequestResult(
+            request,
+            client_response.status,
+            response=client_response,
+            elapsed_time=response_time_s,
+            parse_response=False,
+        )
     else:
         exc = response_type('request failed')
         result = RequestResult(request, 599, elapsed_time=response_time_s, exc=exc, parse_response=False)

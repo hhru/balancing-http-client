@@ -20,9 +20,14 @@ from lxml import etree
 from multidict import CIMultiDict
 
 from http_client.options import options
-from http_client.util import make_body, make_mfd, make_url, to_unicode, xml_to_dict, make_form_data
+from http_client.util import make_body, make_form_data, make_mfd, make_url, to_unicode, xml_to_dict
 
 USER_AGENT_HEADER = 'User-Agent'
+DEADLINE_TIMEOUT_MS_HEADER = 'X-Deadline-Timeout-Ms'
+OUTER_TIMEOUT_MS_HEADER = 'X-Outer-Timeout-Ms'
+INSUFFICIENT_TIMEOUT = 477
+SERVER_TIMEOUT = 577
+CLIENT_ERROR = 599
 
 http_client_logger = logging.getLogger('http_client')
 
@@ -51,29 +56,29 @@ class FailFastError(Exception):
 
 class RequestBuilder:
     __slots__ = (
-        'host',
-        'path',
-        'url',
-        'name',
-        'method',
-        'connect_timeout',
-        'request_timeout',
-        'timeout',
-        'request_time_left',
-        'max_timeout_tries',
-        'follow_redirects',
-        'idempotent',
-        'speculative_timeout_pct',
         'body',
+        'connect_timeout',
+        'follow_redirects',
         'headers',
-        'upstream_name',
+        'host',
+        'idempotent',
+        'max_timeout_tries',
+        'method',
+        'name',
+        'path',
+        'proxy',
+        'request_time_left',
+        'request_time_left',
+        'request_timeout',
+        'session_required',
+        'source_app',
+        'speculative_timeout_pct',
+        'start_time',
+        'timeout',
         'upstream_datacenter',
         'upstream_hostname',
-        'proxy',
-        'session_required',
-        'request_time_left',
-        'start_time',
-        'source_app',
+        'upstream_name',
+        'url',
     )
 
     def __init__(
@@ -170,7 +175,7 @@ def _parse_response(response_body, real_url, parser, response_type):
             try:
                 body_preview = f'excerpt: {to_unicode(body_preview)}'
             except Exception:
-                body_preview = f'could not be converted to unicode, excerpt: {str(body_preview)}'
+                body_preview = f'could not be converted to unicode, excerpt: {body_preview!s}'
         else:
             body_preview = 'is None'
 
@@ -198,9 +203,9 @@ _parse_response_json = partial(_parse_response, parser=loads_json, response_type
 _parse_response_text = partial(_parse_response, parser=to_unicode, response_type='text')
 
 RESPONSE_CONTENT_TYPES = {
-    'xml': (re.compile('.*xml.?'), _parse_response_xml),
-    'json': (re.compile('.*json.?'), _parse_response_json),
-    'text': (re.compile('.*text/plain.?'), _parse_response_text),
+    'xml': (re.compile(r'.*xml.?'), _parse_response_xml),
+    'json': (re.compile(r'.*json.?'), _parse_response_json),
+    'text': (re.compile(r'.*text/plain.?'), _parse_response_text),
 }
 
 
@@ -209,18 +214,18 @@ T = TypeVar('T')
 
 class RequestResult(Generic[T]):
     __slots__ = (
-        'name',
-        'request',
-        'parse_on_error',
-        'parse_response',
         '_content_type',
         '_data',
         '_data_parse_error',
-        'exc',
-        'elapsed_time',
         '_response',
         '_response_body',
         '_status_code',
+        'elapsed_time',
+        'exc',
+        'name',
+        'parse_on_error',
+        'parse_response',
+        'request',
     )
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
@@ -245,7 +250,7 @@ class RequestResult(Generic[T]):
         self.parse_response = parse_response
         self.parse_on_error = parse_on_error
 
-        self._status_code = status_code
+        self._status_code: int = status_code
         self._response: Optional[ClientResponse] = response
         self._response_body: Optional[bytes] = response_body
         self._content_type: Optional[str] = None
@@ -253,14 +258,14 @@ class RequestResult(Generic[T]):
         self._data_parse_error: Optional[DataParseError] = None
 
     def __repr__(self):
-        args = ', '.join(f'{a}={repr(getattr(self, a))}' for a in self._args)
+        args = ', '.join(f'{a}={getattr(self, a)!r}' for a in self._args)
         return f'{self.__class__.__name__}({args})'
 
     def _parse_data(self):
         if self._data is not None or self._data_parse_error is not None:
             return
 
-        if self.exc is not None or self.status_code >= 400 and not self.parse_on_error:
+        if self.exc is not None or (self.status_code >= 400 and not self.parse_on_error):
             self._data_parse_error = DataParseError(reason=self.error, code=self.status_code)
             return
 
@@ -284,7 +289,7 @@ class RequestResult(Generic[T]):
             self._data = data_or_error
 
     @property
-    def status_code(self):
+    def status_code(self) -> int:
         return self._status_code
 
     @property
@@ -389,36 +394,3 @@ class RequestResult(Generic[T]):
             return debug_response, fake_result
 
         return None
-
-
-class TornadoResponseWrapper:
-    """
-    only for testing
-
-    Attributes
-    ----------
-    resp : tornado.httpclient.HTTPResponse
-    """
-
-    def __init__(self, resp):
-        self.resp = resp
-
-    @property
-    def status(self):
-        return self.resp.code
-
-    @property
-    def reason(self):
-        return self.resp.reason
-
-    @property
-    def body(self):
-        return self.resp.body
-
-    @property
-    def headers(self):
-        return self.resp.headers
-
-    @property
-    def real_url(self):
-        return self.resp.effective_url

@@ -1,11 +1,10 @@
-
 import threading
 import time
 from http import HTTPStatus
 
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
@@ -25,7 +24,7 @@ def resetting_server(sock):
 
 
 class TestResettingServer(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.resetting_server_socket, resetting_server_port = self.bind_unused_port()
         resetting_server_thread = threading.Thread(target=resetting_server, args=(self.resetting_server_socket,))
