@@ -1,13 +1,13 @@
-from http_client.util import make_mfd, BOUNDARY_
+from http_client.util import BOUNDARY_, make_mfd
 
 
 def test_make_mfd_with_fields_only():
-    fields = {"username": "testuser", "password": "secret"}
+    fields = {'username': 'testuser', 'password': 'secret'}
     files = {}
 
     body, content_type = make_mfd(fields, files)
 
-    expected_content_type = f"multipart/form-data; boundary={BOUNDARY_}"
+    expected_content_type = f'multipart/form-data; boundary={BOUNDARY_}'
 
     # Check if boundary is in the body
     assert expected_content_type == content_type
@@ -18,13 +18,13 @@ def test_make_mfd_with_fields_only():
 
 
 def test_make_mfd_with_single_file():
-    file_content = b"file contents"
+    file_content = b'file contents'
     fields = {}
-    files = {"file1": [{"filename": "test.txt", "body": file_content}]}
+    files = {'file1': [{'filename': 'test.txt', 'body': file_content}]}
 
     body, content_type = make_mfd(fields, files)
 
-    expected_content_type = f"multipart/form-data; boundary={BOUNDARY_}"
+    expected_content_type = f'multipart/form-data; boundary={BOUNDARY_}'
 
     assert expected_content_type == content_type
     assert b'Content-Disposition: form-data; name="file1"; filename="test.txt"' in body
@@ -32,9 +32,9 @@ def test_make_mfd_with_single_file():
 
 
 def test_make_mfd_with_content_type():
-    file_content = b"file contents"
+    file_content = b'file contents'
     fields = {}
-    files = {"file1": [{"filename": "test.txt", "body": file_content, "content_type": "text/plain"}]}
+    files = {'file1': [{'filename': 'test.txt', 'body': file_content, 'content_type': 'text/plain'}]}
 
     body, content_type = make_mfd(fields, files)
 
@@ -44,10 +44,10 @@ def test_make_mfd_with_content_type():
 
 
 def test_make_mfd_with_mixed_fields_and_files():
-    file_content = b"file contents"
+    file_content = b'file contents'
 
-    fields = {"username": "testuser", "password": "secret"}
-    files = {"file1": [{"filename": "test.txt", "body": file_content}]}
+    fields = {'username': 'testuser', 'password': 'secret'}
+    files = {'file1': [{'filename': 'test.txt', 'body': file_content}]}
 
     body, content_type = make_mfd(fields, files)
 

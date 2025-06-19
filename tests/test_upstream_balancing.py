@@ -19,11 +19,12 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
         timeline[start_time + request_time].append((i, False))
 
     for commands in timeline:
-        for (index, acquire) in commands:
+        for index, acquire in commands:
             if acquire:
                 address, _, dest_host = upstream.acquire_server()
-                address_index = next((i for i, server in enumerate(upstream.servers)
-                                      if server.address == address), None)
+                address_index = next(
+                    (i for i, server in enumerate(upstream.servers) if server.address == address), None
+                )
                 done[address_index] = done[address_index] + 1
                 mapping[index] = address_index
             else:
@@ -33,14 +34,14 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
 
 
 def _upstream(weights):
-    return Upstream('upstream', {},
-                    [Server(str(weight), hostname='dest_host', weight=weight, dc='test') for weight in weights])
+    return Upstream(
+        'upstream', {}, [Server(str(weight), hostname='dest_host', weight=weight, dc='test') for weight in weights]
+    )
 
 
 class TestHttpError:
-
     def setUp(self) -> None:
-        options.datacenter = "test"
+        options.datacenter = 'test'
 
     def check_distribution(self, requests, weights):
         if len(requests) != len(weights) or len(requests) <= 1:
@@ -50,9 +51,10 @@ class TestHttpError:
             request_ratio = float(requests[i]) / float(requests[i - 1])
             weights_ratio = float(weights[i]) / float(weights[i - 1])
 
-            assert abs(request_ratio - weights_ratio) <= 0.3, \
-                f'{requests} and {weights} ratio difference for elements {i - 1} and {i} ' \
+            assert abs(request_ratio - weights_ratio) <= 0.3, (
+                f'{requests} and {weights} ratio difference for elements {i - 1} and {i} '
                 f'is too big: {request_ratio} vs {weights_ratio}'
+            )
 
     def test_sparse_requests(self):
         weights = [50, 100, 200]

@@ -19,7 +19,7 @@ url = "https://devpi.pyn.ru/hh/hhdev/+simple/"
 priority = "explicit"
 
 [tool.poetry.dependencies]
-python = '~=3.9'
+python = '>=3.9,<3.14'
 aiohttp = '>=3.8.3, <4.0.0'
 lxml = '5.3.0'
 yarl = '1.18.3'
@@ -28,11 +28,9 @@ orjson = '*'
 [tool.poetry.group.test.dependencies]
 pytest = '8.3.3'
 pytest-asyncio = '0.24.0'
-pycodestyle = '2.10.0'
 pytest-httpserver = '1.0.8'
-black = '23.9.1'
 exceptiongroup = '1.2.0'
-tomli = '2.0.1'
+pystolint = '0.2.13'
 
 [tool.pytest.ini_options]
 testpaths = 'tests'
@@ -41,10 +39,25 @@ addopts = '''
   -p no:warnings
 '''
 
-[tool.isort]
-line_length=120
-multi_line_output=4
 
-[tool.black]
-line-length = 120
-skip-string-normalization = true
+[tool.ruff.lint]
+ignore = [
+    'ANN201','PT003','PLC0206','ANN001','PLR6301','B026','DOC501','ANN401','D205','UP031',
+    'FBT001','EM102','FA100','UP006','UP035','B903','ANN204','G004','C417','FBT003','PLR2004',
+    'A004','TRY003','FBT002','B904','ANN202','C409','C414',
+]
+
+[tool.mypy]
+disable_error_code = [
+  'arg-type', 
+  'no-untyped-call', 
+  'union-attr', 
+  'no-untyped-def', 
+  'var-annotated',
+  'attr-defined',
+  'operator',
+  'type-arg',
+  'no-any-return',
+  'no-redef',
+]
+

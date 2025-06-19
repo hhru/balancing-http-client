@@ -15,9 +15,9 @@ def parse_consul_health_servers_data(values):
     for v in values:
         node_name = v['Node']['Node'].lower()
         if len(v['Service']['Address']):
-            service_config['Address'] = f"{v['Service']['Address']}:{str(v['Service']['Port'])}"
+            service_config['Address'] = f'{v["Service"]["Address"]}:{v["Service"]["Port"]!s}'
         else:
-            service_config['Address'] = f"{v['Node']['Address']}:{str(v['Service']['Port'])}"
+            service_config['Address'] = f'{v["Node"]["Address"]}:{v["Service"]["Port"]!s}'
         service_config['Weight'] = v['Service']['Weights']['Passing']
         service_config['Datacenter'] = v['Node']['Datacenter']
 
@@ -25,12 +25,9 @@ def parse_consul_health_servers_data(values):
         if options.self_node_filter_enabled and _not_same_name(node_name):
             consul_util_logger.debug(f'Self node filtering activated. Skip: {node_name}')
             continue
-        servers.append(Server(
-            address=service_config['Address'],
-            hostname=node_name,
-            weight=service_config['Weight'],
-            dc=dc
-        ))
+        servers.append(
+            Server(address=service_config['Address'], hostname=node_name, weight=service_config['Weight'], dc=dc)
+        )
         service_config = {}
     return dc, servers
 
@@ -51,6 +48,6 @@ def parse_consul_upstream_config(value):
             speculative_timeout_pct=profile_config.get('speculative_timeout_pct'),
             slow_start_interval=profile_config.get('slow_start_interval_sec'),
             retry_policy=profile_config.get('retry_policy'),
-            session_required=profile_config.get('session_required')
+            session_required=profile_config.get('session_required'),
         )
     return config

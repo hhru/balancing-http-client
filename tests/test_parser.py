@@ -1,16 +1,14 @@
 import json
 
 from http_client.balancing import Upstream
-from http_client.consul_parser import (parse_consul_health_servers_data,
-                                       parse_consul_upstream_config)
+from http_client.consul_parser import parse_consul_health_servers_data, parse_consul_upstream_config
 from http_client.options import options
 
 
 class TestParser:
-
     def test_parse_config(self):
-        value = {'Value': json.dumps(
-            {
+        value = {
+            'Value': json.dumps({
                 'hosts': {
                     'default': {
                         'profiles': {
@@ -31,12 +29,12 @@ class TestParser:
                                 'slow_start_interval_sec': '300',
                                 'speculative_timeout_pct': '0.7',
                                 'session_required': 'false',
-                            }
+                            },
                         }
                     }
                 }
-            }
-        )}
+            })
+        }
         config = parse_consul_upstream_config(value)
 
         assert len(config) == 2
@@ -49,28 +47,16 @@ class TestParser:
         assert config.get(Upstream.DEFAULT_PROFILE).speculative_timeout_pct == 0.5
         assert config.get(Upstream.DEFAULT_PROFILE).session_required is True
 
-        assert config.get("slow").max_tries == 6
-        assert config.get("slow").request_timeout == 10
-        assert config.get("slow").connect_timeout == 0.5
-        assert config.get("slow").max_timeout_tries == 2
-        assert config.get("slow").slow_start_interval == 300
-        assert config.get("slow").speculative_timeout_pct == 0.7
-        assert config.get("slow").session_required is False
+        assert config.get('slow').max_tries == 6
+        assert config.get('slow').request_timeout == 10
+        assert config.get('slow').connect_timeout == 0.5
+        assert config.get('slow').max_timeout_tries == 2
+        assert config.get('slow').slow_start_interval == 300
+        assert config.get('slow').speculative_timeout_pct == 0.7
+        assert config.get('slow').session_required is False
 
     def test_parse_config_default_value(self):
-        value = {'Value': json.dumps(
-            {
-                'hosts': {
-                    'default': {
-                        'profiles': {
-                            'default': {
-                                'max_tries': '3'
-                            }
-                        }
-                    }
-                }
-            }
-        )}
+        value = {'Value': json.dumps({'hosts': {'default': {'profiles': {'default': {'max_tries': '3'}}}}})}
         config = parse_consul_upstream_config(value)
 
         assert config.get(Upstream.DEFAULT_PROFILE).max_tries == 3
@@ -91,11 +77,8 @@ class TestParser:
                     'Service': 'app',
                     'Address': '',
                     'Port': 9999,
-                    'Weights': {
-                        'Passing': 100,
-                        'Warning': 0
-                    }
-                }
+                    'Weights': {'Passing': 100, 'Warning': 0},
+                },
             }
         ]
 
@@ -120,11 +103,8 @@ class TestParser:
                     'Service': 'app',
                     'Address': '',
                     'Port': 9999,
-                    'Weights': {
-                        'Passing': 100,
-                        'Warning': 0
-                    }
-                }
+                    'Weights': {'Passing': 100, 'Warning': 0},
+                },
             }
         ]
 
@@ -147,11 +127,8 @@ class TestParser:
                     'Service': 'app',
                     'Address': '',
                     'Port': 9999,
-                    'Weights': {
-                        'Passing': 100,
-                        'Warning': 0
-                    }
-                }
+                    'Weights': {'Passing': 100, 'Warning': 0},
+                },
             }
         ]
 
@@ -195,5 +172,9 @@ class TestParser:
         config = parse_consul_upstream_config(value)
 
         upstream = Upstream('some_upstream', config, [])
-        assert (upstream.config_by_profile.get(Upstream.DEFAULT_PROFILE).retry_policy.statuses ==
-                {503: True, 599: False, 502: False, 504: True})
+        assert upstream.config_by_profile.get(Upstream.DEFAULT_PROFILE).retry_policy.statuses == {
+            503: True,
+            599: False,
+            502: False,
+            504: True,
+        }

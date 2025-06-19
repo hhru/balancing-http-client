@@ -1,13 +1,13 @@
 from http import HTTPStatus
 
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
 class TestNotExistingServer(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.not_serving_socket, not_serving_port = self.bind_unused_port()
         self.not_serving_socket.close()

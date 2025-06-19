@@ -4,8 +4,8 @@ from http import HTTPStatus
 
 import aiohttp
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
@@ -15,13 +15,13 @@ def low_backlog_server_handler(sock, event):
 
 
 class TestLowBacklog(TestBase, BalancingClientMixin):
-
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.low_backlog_server_socket, low_backlog_server_port = self.bind_unused_port()
         self.stop_event = threading.Event()
-        low_backlog_server = threading.Thread(target=low_backlog_server_handler,
-                                              args=(self.low_backlog_server_socket, self.stop_event))
+        low_backlog_server = threading.Thread(
+            target=low_backlog_server_handler, args=(self.low_backlog_server_socket, self.stop_event)
+        )
         low_backlog_server.daemon = True
         low_backlog_server.start()
         self.register_ports_for_upstream(low_backlog_server_port, working_server.port)

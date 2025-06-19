@@ -1,9 +1,8 @@
-import sys
 import threading
 
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
@@ -21,11 +20,12 @@ def not_closed_socket_server(sock):
 
 
 class TestNotCloseSocket(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.not_closed_socket_server_socket, not_closed_socket_server_port = self.bind_unused_port()
-        exceptionally_server_thread = threading.Thread(target=not_closed_socket_server,
-                                                       args=(self.not_closed_socket_server_socket,))
+        exceptionally_server_thread = threading.Thread(
+            target=not_closed_socket_server, args=(self.not_closed_socket_server_socket,)
+        )
         exceptionally_server_thread.daemon = True
         exceptionally_server_thread.start()
         self.register_ports_for_upstream(not_closed_socket_server_port, working_server.port)

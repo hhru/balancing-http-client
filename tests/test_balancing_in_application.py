@@ -1,17 +1,18 @@
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
 class TestBalancingInApplication(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer):
-
         working_server.expect_request('/content', method='POST').respond_with_data(
-            'post_success', status=200, headers={'content-type': 'text/plain'})
+            'post_success', status=200, headers={'content-type': 'text/plain'}
+        )
         working_server.expect_request('/content', method='DELETE').respond_with_data(
-            'delete_success', status=500, headers={'content-type': 'text/plain'})
+            'delete_success', status=500, headers={'content-type': 'text/plain'}
+        )
 
         self.port = working_server.port
         self.register_ports_for_upstream(working_server.port)

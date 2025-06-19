@@ -2,8 +2,8 @@ import threading
 from http import HTTPStatus
 
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
@@ -22,11 +22,12 @@ def gracefully_shutdown_server(sock):
 
 
 class TestGracefulShutdown(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.gracefully_shutdown_server_socket, gracefully_shutdown_server_port = self.bind_unused_port()
-        gracefully_server_thread = threading.Thread(target=gracefully_shutdown_server,
-                                                    args=(self.gracefully_shutdown_server_socket,))
+        gracefully_server_thread = threading.Thread(
+            target=gracefully_shutdown_server, args=(self.gracefully_shutdown_server_socket,)
+        )
         gracefully_server_thread.daemon = True
         gracefully_server_thread.start()
         self.register_ports_for_upstream(gracefully_shutdown_server_port, working_server.port)

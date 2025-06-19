@@ -1,20 +1,12 @@
-import os.path
-from functools import partial
-
-import pycodestyle
+from pystolint.api import check
 
 from tests import ROOT
 
+MODULES = ['http_client', 'tests']
 
-class TestCodestyle:
-    CHECKED_PATHS = ('http_client', 'tests')
 
-    def test_codestyle(self):
-        style_guide = pycodestyle.StyleGuide(
-            show_pep8=False,
-            show_source=True,
-            max_line_length=120,
-            ignore=['E731', 'W504']
-        )
-        result = style_guide.check_files(map(partial(os.path.join, ROOT), TestCodestyle.CHECKED_PATHS))
-        assert result.total_errors == 0, 'Pycodestyle found code style errors or warnings'
+def test_codestyle() -> None:
+    result = check(MODULES, diff=True, local_toml_path_provided=f'{ROOT}/pyproject.toml')
+
+    assert len(result.items) == 0, '\n'.join(str(item) for item in result.items)
+    assert len(result.errors) == 0, '\n'.join(error for error in result.errors)

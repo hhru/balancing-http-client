@@ -4,8 +4,8 @@ import threading
 from http import HTTPStatus
 
 import pytest
-
 from pytest_httpserver import HTTPServer
+
 from tests.test_balancing_base import BalancingClientMixin, TestBase
 
 
@@ -15,7 +15,7 @@ def exceptionally_resetting_server(sock):
     while True:
         try:
             client_sock, client_addr = sock.accept()
-            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
             client_sock.recv(4)
         except (BlockingIOError, OSError):
             pass
@@ -25,12 +25,13 @@ def exceptionally_resetting_server(sock):
 
 
 class TestExceptionalResettingServer(TestBase, BalancingClientMixin):
-    @pytest.fixture(scope="function", autouse=True)
+    @pytest.fixture(scope='function', autouse=True)
     def setup_method(self, working_server: HTTPServer, setup_http_client_factory):
         self.resetting_server_socket, resetting_server_port = self.bind_unused_port()
         self.resetting_server_port = resetting_server_port
-        resetting_server_thread = threading.Thread(target=exceptionally_resetting_server,
-                                                   args=(self.resetting_server_socket,))
+        resetting_server_thread = threading.Thread(
+            target=exceptionally_resetting_server, args=(self.resetting_server_socket,)
+        )
         resetting_server_thread.daemon = True
         resetting_server_thread.start()
         self.register_ports_for_upstream(resetting_server_port, working_server.port)
