@@ -498,24 +498,16 @@ class BalancingState:
 class AdaptiveBalancingState(BalancingState):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.adaptive_failed = False
         self.server_entry_iterator = None
 
     def acquire_server(self):
-        if not self.adaptive_failed:
-            try:
-                host, datacenter, hostname = self.acquire_adaptive_server()
-                self.set_current_server(host, datacenter, hostname)
-                return
-            except Exception:
-                http_client_logger.exception('failed to acquire adaptive servers, falling back to nonadaptive')
-                self.adaptive_failed = True
-        super().acquire_server()
+        host, datacenter, hostname = self.acquire_adaptive_server()
+        self.set_current_server(host, datacenter, hostname)
 
     def release_server(self, elapsed_time, is_server_error):
         if self.is_server_available():
             self.upstream.release_server(
-                self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error, not self.adaptive_failed
+                self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error, adaptive=True
             )
 
     def acquire_adaptive_server(self):

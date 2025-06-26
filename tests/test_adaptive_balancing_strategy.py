@@ -199,7 +199,7 @@ def make_requests(upstream, response_time_func, response_type_func):
 def execute_request_with_retry(state, tries_left, servers_hits, response_time_func, response_type_func):
     # 1. получаем сервер на который пойдем
     state.acquire_server()
-    if not state.is_server_available() or (isinstance(state, AdaptiveBalancingState) and state.adaptive_failed):
+    if not state.is_server_available():
         raise Exception('no available server')
     host = state.current_host
 
