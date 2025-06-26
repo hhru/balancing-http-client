@@ -1,6 +1,6 @@
 import json
 
-from http_client.balancing import Upstream
+from http_client.balancing import BalancingStrategyType, Upstream
 from http_client.consul_parser import parse_consul_health_servers_data, parse_consul_upstream_config
 from http_client.options import options
 
@@ -30,12 +30,16 @@ class TestParser:
                                 'speculative_timeout_pct': '0.7',
                                 'session_required': 'false',
                             },
-                        }
-                    }
-                }
+                        },
+                    },
+                },
+                'balancing_strategy': 'adaptive',
             })
         }
-        config = parse_consul_upstream_config(value)
+        configs = parse_consul_upstream_config(value)
+        assert configs.balancing_strategy_type == BalancingStrategyType.ADAPTIVE
+
+        config = configs.config_by_profile
 
         assert len(config) == 2
 
@@ -57,7 +61,8 @@ class TestParser:
 
     def test_parse_config_default_value(self):
         value = {'Value': json.dumps({'hosts': {'default': {'profiles': {'default': {'max_tries': '3'}}}}})}
-        config = parse_consul_upstream_config(value)
+        configs = parse_consul_upstream_config(value)
+        config = configs.config_by_profile
 
         assert config.get(Upstream.DEFAULT_PROFILE).max_tries == 3
         assert config.get(Upstream.DEFAULT_PROFILE).session_required == options.http_client_default_session_required
@@ -162,6 +167,12 @@ class TestParser:
                                     }
                                 },
                                 "max_tries":"3"
+                            },
+                            "without_retry_policy":{
+                            },
+                            "with_empty_retry_policy":{
+                                "retry_policy":{
+                                }
                             }
                         }
                     }
@@ -169,12 +180,75 @@ class TestParser:
             }"""
         }
 
-        config = parse_consul_upstream_config(value)
+        configs = parse_consul_upstream_config(value)
+        upstream = Upstream('some_upstream', configs, [])
 
-        upstream = Upstream('some_upstream', config, [])
-        assert upstream.config_by_profile.get(Upstream.DEFAULT_PROFILE).retry_policy.statuses == {
+        assert upstream.get_config(Upstream.DEFAULT_PROFILE).retry_policy.statuses == {
             503: True,
             599: False,
             502: False,
             504: True,
         }
+
+        assert (
+            upstream.get_config('without_retry_policy').retry_policy.statuses
+            == options.http_client_default_retry_policy
+        )
+
+        assert (
+            upstream.get_config('with_empty_retry_policy').retry_policy.statuses
+            == options.http_client_default_retry_policy
+        )
+
+    def test_balancing_strategy_parsing(self) -> None:
+        self._test_balancing_strategy_parsing('weighted', BalancingStrategyType.WEIGHTED)
+        self._test_balancing_strategy_parsing('adaptive', BalancingStrategyType.ADAPTIVE)
+
+        # we accept only lower case -> fallback to default
+        self._test_balancing_strategy_parsing('ADAPTIVE', BalancingStrategyType.WEIGHTED)
+
+        # unknown value -> fallback to default
+        self._test_balancing_strategy_parsing('foo_asd', BalancingStrategyType.WEIGHTED)
+
+        # empty value is also unknown -> fallback to default
+        self._test_balancing_strategy_parsing('', BalancingStrategyType.WEIGHTED)
+
+    @staticmethod
+    def _test_balancing_strategy_parsing(
+        balancing_strategy: str,
+        expected_balancing_strategy_type: BalancingStrategyType,
+    ) -> None:
+        value = (
+            """{
+                "balancing_strategy": "%s",
+                "hosts": {
+                    "default": {
+                        "profiles": {
+                            "default": {
+                            }
+                        }
+                    }
+                }
+            }"""  # noqa: UP031
+            % balancing_strategy
+        )
+
+        configs = parse_consul_upstream_config({'Value': value})
+        assert configs.balancing_strategy_type == expected_balancing_strategy_type
+
+    def test_missing_balancing_strategy_parsing(self) -> None:
+        value = """{
+            "hosts": {
+                "default": {
+                    "profiles": {
+                        "default": {
+                        }
+                    }
+                }
+            }
+        }"""
+
+        configs = parse_consul_upstream_config({'Value': value})
+
+        # balancing strategy not specified -> use default
+        assert configs.balancing_strategy_type == BalancingStrategyType.WEIGHTED

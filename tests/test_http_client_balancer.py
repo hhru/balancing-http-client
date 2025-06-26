@@ -1,5 +1,5 @@
 from http_client import options
-from http_client.balancing import Server, Upstream, UpstreamConfig
+from http_client.balancing import Server, Upstream, UpstreamConfig, UpstreamConfigs
 
 
 def _total_weight(upstream):
@@ -17,7 +17,7 @@ class TestHttpClientBalancer:
 
     @staticmethod
     def _upstream(servers, config=None):
-        return Upstream('upstream', config, servers)
+        return Upstream('upstream', UpstreamConfigs(config), servers)
 
     def test_create(self):
         upstream = self._upstream([Server('1', 'dest_host', 1, dc='test'), Server('2', 'dest_host', 1, dc='test')])
@@ -150,7 +150,7 @@ class TestHttpClientBalancer:
     def test_slow_start_on_server(self):
         servers = [Server('1', 'dest_host', 1, dc='test'), Server('2', 'dest_host', 1, dc='test')]
         upstream_config = {Upstream.DEFAULT_PROFILE: UpstreamConfig(slow_start_interval=10)}
-        upstream = Upstream('upstream', upstream_config, servers)
+        upstream = Upstream('upstream', UpstreamConfigs(upstream_config), servers)
 
         assert upstream.servers[0].slow_start_end_time > 0
         assert upstream.servers[1].slow_start_end_time > 0
@@ -158,13 +158,13 @@ class TestHttpClientBalancer:
     def test_session_required_true(self):
         servers = [Server('1', 'dest_host', 1, dc='test'), Server('2', 'dest_host', 1, dc='test')]
         upstream_config = {Upstream.DEFAULT_PROFILE: UpstreamConfig(session_required=True)}
-        upstream = Upstream('upstream', upstream_config, servers)
+        upstream = Upstream('upstream', UpstreamConfigs(upstream_config), servers)
 
         assert upstream.get_config(Upstream.DEFAULT_PROFILE).session_required is True
 
     def test_session_required_false(self):
         servers = [Server('1', 'dest_host', 1, dc='test'), Server('2', 'dest_host', 1, dc='test')]
         upstream_config = {Upstream.DEFAULT_PROFILE: UpstreamConfig()}
-        upstream = Upstream('upstream', upstream_config, servers)
+        upstream = Upstream('upstream', UpstreamConfigs(upstream_config), servers)
 
         assert upstream.get_config(Upstream.DEFAULT_PROFILE).session_required is False

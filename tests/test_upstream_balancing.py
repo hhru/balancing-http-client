@@ -1,7 +1,7 @@
 import random
 
 from http_client import options
-from http_client.balancing import Server, Upstream
+from http_client.balancing import Server, Upstream, UpstreamConfigs
 
 
 def run_simulation(upstream, requests_interval, requests, max_execution_time):
@@ -35,7 +35,9 @@ def run_simulation(upstream, requests_interval, requests, max_execution_time):
 
 def _upstream(weights):
     return Upstream(
-        'upstream', {}, [Server(str(weight), hostname='dest_host', weight=weight, dc='test') for weight in weights]
+        'upstream',
+        UpstreamConfigs({}),
+        [Server(str(weight), hostname='dest_host', weight=weight, dc='test') for weight in weights],
     )
 
 

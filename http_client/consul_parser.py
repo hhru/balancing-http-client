@@ -1,6 +1,7 @@
 import logging
+from typing import Any
 
-from http_client.balancing import Server, UpstreamConfig
+from http_client.balancing import Server, UpstreamConfig, UpstreamConfigs
 from http_client.model.consul_config import ConsulConfig
 from http_client.options import options
 from http_client.util import restore_original_datacenter_name
@@ -36,12 +37,12 @@ def _not_same_name(node_name: str):
     return len(node_name) and options.node_name.lower() != node_name
 
 
-def parse_consul_upstream_config(consul_data: dict[str, str]) -> dict[str, UpstreamConfig]:
-    upstream_config = {}
+def parse_consul_upstream_config(consul_data: dict[str, Any]) -> UpstreamConfigs:
+    config_by_profile = {}
     config: ConsulConfig = ConsulConfig.model_validate_json(consul_data['Value'])
 
     for profile_name, profile_config in config.hosts['default'].profiles.items():
-        upstream_config[profile_name] = UpstreamConfig(
+        config_by_profile[profile_name] = UpstreamConfig(
             max_tries=profile_config.max_tries,
             max_timeout_tries=profile_config.max_timeout_tries,
             connect_timeout=profile_config.connect_timeout_sec,
@@ -51,4 +52,5 @@ def parse_consul_upstream_config(consul_data: dict[str, str]) -> dict[str, Upstr
             retry_policy=profile_config.retry_policy,
             session_required=profile_config.session_required,
         )
-    return upstream_config
+
+    return UpstreamConfigs(config_by_profile, balancing_strategy_type=config.balancing_strategy)

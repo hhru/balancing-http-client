@@ -15,6 +15,7 @@ from http_client.balancing import (
     BalancingState,
     Server,
     Upstream,
+    UpstreamConfigs,
 )
 from http_client.request_response import RequestBuilder, RequestResult
 
@@ -68,7 +69,7 @@ class TestAdaptiveBalancingStrategy:
 
     def test_same_load(self):
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -84,7 +85,7 @@ class TestAdaptiveBalancingStrategy:
 
     def test_one_slow_server(self):
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -103,7 +104,7 @@ class TestAdaptiveBalancingStrategy:
 
     def test_one_fail_server(self):
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -122,7 +123,7 @@ class TestAdaptiveBalancingStrategy:
 
     def test_one_restarted_server(self):
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -151,7 +152,7 @@ class TestAdaptiveBalancingStrategy:
     @pytest.mark.skip(reason='for dev purpose')
     def test_speed(self):
         servers = generate_servers(7)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
         servers_hits = {server.address: {'ok': 0, 'fail': 0} for server in upstream.servers}
 
