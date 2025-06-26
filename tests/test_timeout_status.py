@@ -2,6 +2,7 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 from http_client.request_response import (
+    CLIENT_ERROR,
     DEADLINE_TIMEOUT_MS_HEADER,
     INSUFFICIENT_TIMEOUT,
     OUTER_TIMEOUT_MS_HEADER,
@@ -27,8 +28,8 @@ class TestBalancingInApplication(TestBase, BalancingClientMixin):
         post_result = await self.balancing_client.get_url('test', '/timeout', request_timeout=small_timeout_s)
         assert post_result.status_code == SERVER_TIMEOUT
 
-        post_result = await self.balancing_client.get_url('test', '/timeout', connect_timeout=small_timeout_s)
-        assert post_result.status_code == SERVER_TIMEOUT
+        post_result = await self.balancing_client.get_url('test', '/timeout', connect_timeout=small_timeout_s * 0.5)
+        assert post_result.status_code == CLIENT_ERROR
 
         post_result = await self.balancing_client.get_url(
             'test',
