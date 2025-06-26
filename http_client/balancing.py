@@ -13,7 +13,7 @@ from typing import Optional
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from http_client import RequestBuilder, RequestEngine, RequestEngineBuilder, RequestResult
 from http_client.model.consul_config import RetryPolicies
@@ -544,6 +544,10 @@ class BalancingState:
         if self.is_server_available():
             self.upstream.release_server(self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error)
 
+    @classmethod
+    def get_balancing_strategy_type(cls) -> BalancingStrategyType:
+        return BalancingStrategyType.WEIGHTED
+
 
 class AdaptiveBalancingState(BalancingState):
     def __init__(self, *args, **kwargs):
@@ -566,6 +570,11 @@ class AdaptiveBalancingState(BalancingState):
             self.server_entry_iterator = iter(entries)
 
         return next(self.server_entry_iterator, (None, None, None))
+
+    @classmethod
+    @override
+    def get_balancing_strategy_type(cls) -> BalancingStrategyType:
+        return BalancingStrategyType.ADAPTIVE
 
 
 class RequestBalancer(RequestEngine):
@@ -753,6 +762,7 @@ class RequestBalancer(RequestEngine):
                 dc=request.upstream_datacenter,
                 final='false' if do_retry else 'true',
                 status=result.status_code,
+                balancing=self._get_balancing_strategy_type() or 'unknown',
             )
             self.statsd_client.time(
                 'http.client.request.time',
@@ -792,6 +802,9 @@ class RequestBalancer(RequestEngine):
 
     def get_trace(self):
         return ' -> '.join([f'{host}~{data.responseCode}~{data.msg}' for host, data in self.trace.items()])
+
+    def _get_balancing_strategy_type(self) -> str | None:
+        raise NotImplementedError
 
 
 class ExternalUrlRequestor(RequestBalancer):
@@ -836,6 +849,10 @@ class ExternalUrlRequestor(RequestBalancer):
     def _check_retry(self, response: RequestResult, is_idempotent):
         do_retry = super()._check_retry(response, is_idempotent)
         return do_retry and self.DEFAULT_RETRY_POLICY.is_retriable(response, is_idempotent)
+
+    @override
+    def _get_balancing_strategy_type(self) -> str | None:
+        return 'externalRequest'
 
 
 class UpstreamRequestBalancer(RequestBalancer):
@@ -902,6 +919,10 @@ class UpstreamRequestBalancer(RequestBalancer):
 
     def _on_retry(self):
         self.state.increment_tries()
+
+    @override
+    def _get_balancing_strategy_type(self) -> str | None:
+        return self.state.get_balancing_strategy_type().value
 
 
 class RequestBalancerBuilder(RequestEngineBuilder):
