@@ -394,3 +394,37 @@ class RequestResult(Generic[T]):
             return debug_response, fake_result
 
         return None
+
+
+class TornadoResponseWrapper:
+    """
+    only for testing
+
+    Attributes
+    ----------
+    resp : tornado.httpclient.HTTPResponse
+
+    """
+
+    def __init__(self, resp):
+        self.resp = resp
+
+    @property
+    def status(self):
+        return self.resp.code
+
+    @property
+    def reason(self):
+        return self.resp.reason
+
+    @property
+    def body(self):
+        return self.resp.body
+
+    @property
+    def headers(self):
+        return self.resp.headers
+
+    @property
+    def real_url(self):
+        return self.resp.effective_url

@@ -2,9 +2,11 @@ import abc
 import asyncio
 import contextvars
 import time
-from asyncio import TimeoutError
+from asyncio import Future, TimeoutError
+from typing import Callable
 
 import aiohttp
+import yarl
 from aiohttp.client_exceptions import ClientError
 
 from http_client.options import options
@@ -16,6 +18,7 @@ from http_client.request_response import (
     SERVER_TIMEOUT,
     RequestBuilder,
     RequestResult,
+    TornadoResponseWrapper,
 )
 from http_client.util import set_contextvar
 
@@ -26,7 +29,7 @@ extra_client_params = contextvars.ContextVar('extra_client_params', default=(Non
 
 class RequestEngine(abc.ABC):
     @abc.abstractmethod
-    async def execute(self) -> RequestResult:
+    def execute(self) -> Future[RequestResult]:
         raise NotImplementedError
 
 
@@ -52,7 +55,7 @@ class HttpClient:
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
 
-    async def get_url(
+    def get_url(
         self,
         host,
         path,
@@ -69,7 +72,7 @@ class HttpClient:
         parse_on_error=True,
         fail_fast=False,
         speculative_timeout_pct=None,
-    ) -> RequestResult:
+    ) -> Future[RequestResult]:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
@@ -99,9 +102,9 @@ class HttpClient:
             parse_on_error,
             fail_fast,
         )
-        return await request_engine.execute()
+        return request_engine.execute()
 
-    async def head_url(
+    def head_url(
         self,
         host,
         path,
@@ -116,7 +119,7 @@ class HttpClient:
         max_timeout_tries=None,
         fail_fast=False,
         speculative_timeout_pct=None,
-    ) -> RequestResult:
+    ) -> Future[RequestResult]:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
@@ -139,9 +142,9 @@ class HttpClient:
         request_engine = self.request_engine_builder.build(
             request, profile, self.execute_request, modify_http_request_hook, debug_enabled, False, False, fail_fast
         )
-        return await request_engine.execute()
+        return request_engine.execute()
 
-    async def post_url(
+    def post_url(
         self,
         host,
         path,
@@ -162,7 +165,7 @@ class HttpClient:
         fail_fast=False,
         speculative_timeout_pct=None,
         use_form_data=False,
-    ) -> RequestResult:
+    ) -> Future[RequestResult]:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
@@ -194,9 +197,9 @@ class HttpClient:
             parse_on_error,
             fail_fast,
         )
-        return await request_engine.execute()
+        return request_engine.execute()
 
-    async def put_url(
+    def put_url(
         self,
         host,
         path,
@@ -215,7 +218,7 @@ class HttpClient:
         parse_on_error=True,
         fail_fast=False,
         speculative_timeout_pct=None,
-    ) -> RequestResult:
+    ) -> Future[RequestResult]:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
@@ -246,9 +249,9 @@ class HttpClient:
             parse_on_error,
             fail_fast,
         )
-        return await request_engine.execute()
+        return request_engine.execute()
 
-    async def delete_url(
+    def delete_url(
         self,
         host,
         path,
@@ -265,7 +268,7 @@ class HttpClient:
         parse_on_error=True,
         fail_fast=False,
         speculative_timeout_pct=None,
-    ) -> RequestResult:
+    ) -> Future[RequestResult]:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
         request = RequestBuilder(
@@ -294,10 +297,10 @@ class HttpClient:
             parse_on_error,
             fail_fast,
         )
-        return await request_engine.execute()
+        return request_engine.execute()
 
-    async def execute_request(self, request: RequestBuilder) -> RequestResult:
-        return await self.http_client_impl.fetch(request)
+    def execute_request(self, request: RequestBuilder) -> Future[RequestResult]:
+        return self.http_client_impl.fetch(request)
 
 
 class AIOHttpClientWrapper:
@@ -310,6 +313,14 @@ class AIOHttpClientWrapper:
         trace_config.on_request_exception.append(self._on_request_exception)
         tcp_connector = aiohttp.TCPConnector(limit=options.max_clients)
         self.client_session = aiohttp.ClientSession(trace_configs=[trace_config], connector=tcp_connector)
+
+        class IoLoopTestWrapper:
+            @staticmethod
+            def add_callback(func):
+                loop = asyncio.get_event_loop()
+                loop.call_soon(func)
+
+        self.io_loop = IoLoopTestWrapper()
 
     async def _on_request_start(self, session, trace_config_ctx, params):
         self._start_time.set(time.time())
@@ -342,38 +353,67 @@ class AIOHttpClientWrapper:
     def close(self):
         pass
 
-    async def fetch(self, request: RequestBuilder) -> RequestResult:
-        with (
-            set_contextvar(current_client_request, request),
-            set_contextvar(current_client_request_status, None),
-            set_contextvar(self._elapsed_time, 0),
-            set_contextvar(self._start_time, 0),
-        ):
-            try:
-                response = await self.client_session.request(
-                    method=request.method,
-                    url=request.url,
-                    headers=request.headers,
-                    data=request.body,
-                    allow_redirects=request.follow_redirects,
-                    timeout=request.timeout,
-                    proxy=request.proxy,
-                )
-                request.start_time = self._start_time.get()
-                response_body = await response.read()
-                result = RequestResult(
-                    request, response.status, response, response_body, elapsed_time=self._elapsed_time.get()
-                )
+    def fetch(self, request: RequestBuilder, raise_error=True, **kwargs) -> Future[RequestResult]:
+        future = Future()
 
-            except (ClientError, TimeoutError) as exc:
-                result = RequestResult(
-                    request,
-                    current_client_request_status.get() or CLIENT_ERROR,
-                    elapsed_time=self._elapsed_time.get(),
-                    exc=exc,
-                )
+        def handle_response(response) -> None:
+            if future.done():
+                return
 
-        return result
+            if not isinstance(response, RequestResult):
+                resp = TornadoResponseWrapper(response)
+                result = RequestResult(request, resp.status, resp, resp.body, elapsed_time=request.request_timeout)
+                future.set_result(result)
+            else:
+                future.set_result(response)
+
+        if isinstance(request, str):
+            url = yarl.URL(request)
+            host = f'{url.host}:{url.port}'
+            path = url.raw_path_qs
+            request = RequestBuilder(host, 'test', path, 'test_request', **kwargs)
+        self.fetch_impl(request, handle_response)
+        return future
+
+    def fetch_impl(self, request: RequestBuilder, callback: Callable[[RequestResult], None]):
+        async def real_fetch():
+            with (
+                set_contextvar(current_client_request, request),
+                set_contextvar(current_client_request_status, None),
+                set_contextvar(self._elapsed_time, 0),
+                set_contextvar(self._start_time, 0),
+            ):
+                try:
+                    response = await self.client_session.request(
+                        method=request.method,
+                        url=request.url,
+                        headers=request.headers,
+                        data=request.body,
+                        allow_redirects=request.follow_redirects,
+                        timeout=request.timeout,
+                        proxy=request.proxy,
+                    )
+                    request.start_time = self._start_time.get()
+                    response_body = await response.read()
+                    result = RequestResult(
+                        request, response.status, response, response_body, elapsed_time=self._elapsed_time.get()
+                    )
+
+                except (ClientError, TimeoutError) as exc:
+                    result = RequestResult(
+                        request,
+                        current_client_request_status.get() or CLIENT_ERROR,
+                        elapsed_time=self._elapsed_time.get(),
+                        exc=exc,
+                    )
+
+            if callback is not None:
+                callback(result)
+
+            return result
+
+        task = asyncio.create_task(real_fetch())
+        return task
 
 
 class HttpClientFactory:
