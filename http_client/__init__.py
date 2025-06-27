@@ -5,7 +5,7 @@ import time
 from asyncio import TimeoutError
 
 import aiohttp
-from aiohttp.client_exceptions import ClientError
+from aiohttp.client_exceptions import ClientConnectorError, ClientError, ServerTimeoutError
 
 from http_client.options import options
 from http_client.request_response import (
@@ -324,7 +324,10 @@ class AIOHttpClientWrapper:
         elapsed = asyncio.get_event_loop().time() - trace_config_ctx.start
         self._elapsed_time.set(elapsed)
 
-        if isinstance(params.exception, TimeoutError):
+        if isinstance(params.exception, (ClientConnectorError, ServerTimeoutError)):
+            current_client_request_status.set(CLIENT_ERROR)
+
+        elif isinstance(params.exception, TimeoutError):
             deadline_timeout = params.headers.get(DEADLINE_TIMEOUT_MS_HEADER)
             outer_timeout = params.headers.get(OUTER_TIMEOUT_MS_HEADER)
 
