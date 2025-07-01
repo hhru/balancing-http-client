@@ -12,6 +12,7 @@ import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 
 from http_client import RequestBuilder, RequestEngine, RequestEngineBuilder, RequestResult
+from http_client.model.consul_config import RetryPolicies
 from http_client.options import options
 from http_client.request_response import FailFastError, NoAvailableServerException, ResponseData
 from http_client.util import utf8, weighted_sample
@@ -162,11 +163,11 @@ class Server:
 
 
 class RetryPolicy:
-    def __init__(self, properties=None):
+    def __init__(self, retry_policies: Optional[RetryPolicies] = None) -> None:
         self.statuses = {}
-        if properties:
-            for status, config in properties.items():
-                self.statuses[int(status)] = config.get('retry_non_idempotent', 'false') == 'true'
+        if retry_policies:
+            for status, policy in retry_policies.items():
+                self.statuses[int(status)] = policy.retry_non_idempotent
         else:
             self.statuses = options.http_client_default_retry_policy
 
@@ -200,15 +201,16 @@ class RetryPolicy:
 class UpstreamConfig:
     def __init__(
         self,
-        max_tries=None,
-        max_timeout_tries=None,
-        connect_timeout=None,
-        request_timeout=None,
-        speculative_timeout_pct=None,
-        slow_start_interval=None,
-        retry_policy=None,
-        session_required=None,
-    ):
+        *,
+        max_tries: Optional[int] = None,
+        max_timeout_tries: Optional[int] = None,
+        connect_timeout: Optional[float] = None,
+        request_timeout: Optional[float] = None,
+        speculative_timeout_pct: Optional[float] = None,
+        slow_start_interval: Optional[int] = None,
+        retry_policy: Optional[RetryPolicies] = None,
+        session_required: Optional[bool] = None,
+    ) -> None:
         self.max_tries = int(options.http_client_default_max_tries if max_tries is None else max_tries)
         self.max_timeout_tries = int(
             options.http_client_default_max_timeout_tries if max_timeout_tries is None else max_timeout_tries
@@ -221,7 +223,7 @@ class UpstreamConfig:
         )
         self.speculative_timeout_pct = float(0 if speculative_timeout_pct is None else speculative_timeout_pct)
         self.slow_start_interval = float(0 if slow_start_interval is None else slow_start_interval)
-        self.retry_policy = RetryPolicy({} if retry_policy is None else retry_policy)
+        self.retry_policy = RetryPolicy(retry_policy)
         trues = ('true', 'True', '1', True)
         self.session_required = (
             options.http_client_default_session_required if session_required is None else session_required

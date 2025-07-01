@@ -1,7 +1,7 @@
-import json
 import logging
 
 from http_client.balancing import Server, UpstreamConfig
+from http_client.model.consul_config import ConsulConfig
 from http_client.options import options
 from http_client.util import restore_original_datacenter_name
 
@@ -36,18 +36,19 @@ def _not_same_name(node_name: str):
     return len(node_name) and options.node_name.lower() != node_name
 
 
-def parse_consul_upstream_config(value):
-    config = {}
-    values = json.loads(value['Value'])
-    for profile_name, profile_config in values['hosts']['default']['profiles'].items():
-        config[profile_name] = UpstreamConfig(
-            max_tries=profile_config.get('max_tries'),
-            max_timeout_tries=profile_config.get('max_timeout_tries'),
-            connect_timeout=profile_config.get('connect_timeout_sec'),
-            request_timeout=profile_config.get('request_timeout_sec'),
-            speculative_timeout_pct=profile_config.get('speculative_timeout_pct'),
-            slow_start_interval=profile_config.get('slow_start_interval_sec'),
-            retry_policy=profile_config.get('retry_policy'),
-            session_required=profile_config.get('session_required'),
+def parse_consul_upstream_config(consul_data: dict[str, str]) -> dict[str, UpstreamConfig]:
+    upstream_config = {}
+    config: ConsulConfig = ConsulConfig.model_validate_json(consul_data['Value'])
+
+    for profile_name, profile_config in config.hosts['default'].profiles.items():
+        upstream_config[profile_name] = UpstreamConfig(
+            max_tries=profile_config.max_tries,
+            max_timeout_tries=profile_config.max_timeout_tries,
+            connect_timeout=profile_config.connect_timeout_sec,
+            request_timeout=profile_config.request_timeout_sec,
+            speculative_timeout_pct=profile_config.speculative_timeout_pct,
+            slow_start_interval=profile_config.slow_start_interval_sec,
+            retry_policy=profile_config.retry_policy,
+            session_required=profile_config.session_required,
         )
-    return config
+    return upstream_config
