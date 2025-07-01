@@ -40,5 +40,5 @@ addopts = '''
   -p no:warnings
 '''
 
-[tool.ruff.lint]
-ignore = ['FA100']
+[tool.ruff.lint.per-file-ignores]
+'http_client/model/**/*.py' = ['FA100'] # pydantic needs types in runtime
