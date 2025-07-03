@@ -4,12 +4,14 @@ usage example:
 
 ```py
 import asyncio
-from http_client import HttpClientFactory, AIOHttpClientWrapper
-from http_client.balancing import RequestBalancerBuilder, Server, Upstream
+from http_client import HttpClientFactory
+from http_client.balancing import RequestBalancerBuilder, Server, Upstream, UpstreamConfigs
 
 async def runner():
     servers = [Server('127.0.0.1:9400', 10), Server('127.0.0.1:9401', 20)]
-    request_balancer_builder = RequestBalancerBuilder({'backend1': Upstream('backend1', {}, servers)})
+    request_balancer_builder = RequestBalancerBuilder(
+        {'backend1': Upstream('backend1', UpstreamConfigs({}), servers)}.get
+    )
     http_client_factory = HttpClientFactory('app-name', request_balancer_builder)
 
     http_client = http_client_factory.get_http_client()

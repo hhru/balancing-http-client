@@ -27,3 +27,4 @@ class Host(BaseModel):
 
 class ConsulConfig(BaseModel):
     hosts: dict[str, Host]
+    balancing_strategy: Optional[str] = None

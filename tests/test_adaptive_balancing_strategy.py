@@ -15,6 +15,7 @@ from http_client.balancing import (
     BalancingState,
     Server,
     Upstream,
+    UpstreamConfigs,
 )
 from http_client.request_response import RequestBuilder, RequestResult
 
@@ -67,8 +68,9 @@ class TestAdaptiveBalancingStrategy:
         assert warm_up1 != warm_up2, 'Only one server should be warmed up'
 
     def test_same_load(self):
+        random.seed(123456)
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -78,13 +80,15 @@ class TestAdaptiveBalancingStrategy:
             return 200
 
         server_statistics = make_requests(upstream, response_time_func, response_type_func)
+        # should be nearly 1:1:1 randomly-distributed between all three servers (~0.33)
         assert 0.31 <= server_statistics['test1']['rate'] <= 0.35
         assert 0.31 <= server_statistics['test2']['rate'] <= 0.35
         assert 0.31 <= server_statistics['test3']['rate'] <= 0.35
 
     def test_one_slow_server(self):
+        random.seed(123456)
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -97,13 +101,16 @@ class TestAdaptiveBalancingStrategy:
             return 200
 
         server_statistics = make_requests(upstream, response_time_func, response_type_func)
+        # should be nearly 2:2:1 (actually 39:39:22 because of time tracker window) randomly-distributed
+        # between test1, test2, test3 (~0.39, ~0.39, ~0.22)
         assert 0.37 <= server_statistics['test1']['rate'] <= 0.41
         assert 0.37 <= server_statistics['test2']['rate'] <= 0.41
         assert 0.20 <= server_statistics['test3']['rate'] <= 0.24
 
     def test_one_fail_server(self):
+        random.seed(123456)
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -116,13 +123,15 @@ class TestAdaptiveBalancingStrategy:
                 return 200
 
         server_statistics = make_requests(upstream, response_time_func, response_type_func)
-        assert 0.49 <= server_statistics['test1']['rate'] <= 0.51
-        assert 0.49 <= server_statistics['test2']['rate'] <= 0.51
-        assert 0.0 <= server_statistics['test3']['rate'] <= 0.01
+        # should be nearly 1:1 randomly-distributed between test1 and test2 (~0.50)
+        assert 0.48 <= server_statistics['test1']['rate'] <= 0.52
+        assert 0.48 <= server_statistics['test2']['rate'] <= 0.52
+        assert server_statistics['test3']['rate'] == 0
 
     def test_one_restarted_server(self):
+        random.seed(123456)
         servers = generate_servers(3)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
 
         def response_time_func(host):
@@ -134,24 +143,20 @@ class TestAdaptiveBalancingStrategy:
             if host == 'test3':
                 nonlocal counter
                 counter += 1
-                if counter < 1000:
-                    return 200
-                elif counter < 1100:
+                if 1000 <= counter < 1100:
                     return ServerTimeoutError
-                else:
-                    return 200
-            else:
-                return 200
+            return 200
 
         server_statistics = make_requests(upstream, response_time_func, response_type_func)
-        assert 0.33 <= server_statistics['test1']['rate'] <= 0.38
-        assert 0.33 <= server_statistics['test2']['rate'] <= 0.38
-        assert 0.25 <= server_statistics['test3']['rate'] <= 0.30
+        # should be randomly-distributed between test1, test2, test3 at about ~0.365, ~0.365, ~0.27
+        assert 0.345 <= server_statistics['test1']['rate'] <= 0.385
+        assert 0.345 <= server_statistics['test2']['rate'] <= 0.385
+        assert 0.25 <= server_statistics['test3']['rate'] <= 0.29
 
     @pytest.mark.skip(reason='for dev purpose')
     def test_speed(self):
         servers = generate_servers(7)
-        upstream = Upstream('my_backend', {}, servers)
+        upstream = Upstream('my_backend', UpstreamConfigs({}), servers)
         upstream.datacenter = 'dc1'
         servers_hits = {server.address: {'ok': 0, 'fail': 0} for server in upstream.servers}
 
@@ -199,7 +204,7 @@ def make_requests(upstream, response_time_func, response_type_func):
 def execute_request_with_retry(state, tries_left, servers_hits, response_time_func, response_type_func):
     # 1. получаем сервер на который пойдем
     state.acquire_server()
-    if not state.is_server_available() or (isinstance(state, AdaptiveBalancingState) and state.adaptive_failed):
+    if not state.is_server_available():
         raise Exception('no available server')
     host = state.current_host
 
@@ -214,7 +219,7 @@ def execute_request_with_retry(state, tries_left, servers_hits, response_time_fu
         servers_hits[host]['fail'] += 1
 
     # 3. on_response
-    upstream_config = state.upstream.get_config(state.profile)
+    upstream_config = state.get_upstream_config()
     is_server_error = upstream_config.retry_policy.is_server_error(result)
     state.release_server(result.elapsed_time, is_server_error)
 

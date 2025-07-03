@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import collections
 import logging
@@ -5,11 +7,13 @@ import time
 from asyncio import Future
 from collections import OrderedDict
 from collections.abc import Callable
+from enum import Enum, unique
 from random import random
 from typing import Optional
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
+from typing_extensions import Self, override
 
 from http_client import RequestBuilder, RequestEngine, RequestEngineBuilder, RequestResult
 from http_client.model.consul_config import RetryPolicies
@@ -72,11 +76,11 @@ class Server:
     def calculate_max_real_stat_load(servers):
         return max(server.calculate_load() for server in servers if server is not None)
 
-    def __init__(self, address, hostname, weight=1, dc=None):
+    def __init__(self, address: str, hostname: str, weight: int = 1, dc: str | None = None) -> None:
         self.address = address.rstrip('/')
-        self.hostname: str = hostname
+        self.hostname = hostname
         self.weight = int(weight)
-        self.datacenter: str = dc
+        self.datacenter = dc
 
         self.current_requests = 0
         self.stat_requests = 0
@@ -163,11 +167,11 @@ class Server:
 
 
 class RetryPolicy:
-    def __init__(self, retry_policies: Optional[RetryPolicies] = None) -> None:
+    def __init__(self, retry_policies: RetryPolicies | None = None) -> None:
         self.statuses = {}
         if retry_policies:
             for status, policy in retry_policies.items():
-                self.statuses[int(status)] = policy.retry_non_idempotent
+                self.statuses[status] = policy.retry_non_idempotent
         else:
             self.statuses = options.http_client_default_retry_policy
 
@@ -201,15 +205,15 @@ class RetryPolicy:
 class UpstreamConfig:
     def __init__(
         self,
-        *,
-        max_tries: Optional[int] = None,
-        max_timeout_tries: Optional[int] = None,
-        connect_timeout: Optional[float] = None,
-        request_timeout: Optional[float] = None,
-        speculative_timeout_pct: Optional[float] = None,
-        slow_start_interval: Optional[int] = None,
-        retry_policy: Optional[RetryPolicies] = None,
-        session_required: Optional[bool] = None,
+        *,  # make individual options keyword-only, so they can be safely added/removed in the future
+        max_tries: int | None = None,
+        max_timeout_tries: int | None = None,
+        connect_timeout: float | None = None,
+        request_timeout: float | None = None,
+        speculative_timeout_pct: float | None = None,
+        slow_start_interval: int | None = None,
+        retry_policy: RetryPolicies | None = None,
+        session_required: bool | None = None,
     ) -> None:
         self.max_tries = int(options.http_client_default_max_tries if max_tries is None else max_tries)
         self.max_timeout_tries = int(
@@ -222,12 +226,11 @@ class UpstreamConfig:
             options.http_client_default_request_timeout_sec if request_timeout is None else request_timeout
         )
         self.speculative_timeout_pct = float(0 if speculative_timeout_pct is None else speculative_timeout_pct)
-        self.slow_start_interval = float(0 if slow_start_interval is None else slow_start_interval)
+        self.slow_start_interval = int(0 if slow_start_interval is None else slow_start_interval)
         self.retry_policy = RetryPolicy(retry_policy)
-        trues = ('true', 'True', '1', True)
         self.session_required = (
             options.http_client_default_session_required if session_required is None else session_required
-        ) in trues
+        ) is True
 
     def __repr__(self):
         return (
@@ -239,13 +242,57 @@ class UpstreamConfig:
         )
 
 
+@unique
+class BalancingStrategyType(str, Enum):
+    WEIGHTED = 'weighted'
+    ADAPTIVE = 'adaptive'
+
+    @classmethod
+    def try_parse_from_str(cls, value: str | None) -> Self | None:
+        if value is None:
+            return None
+
+        try:
+            return cls(value)
+        except ValueError:
+            return None
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class UpstreamConfigs:
+    DEFAULT_BALANCING_STRATEGY = BalancingStrategyType.WEIGHTED
+
+    def __init__(
+        self,
+        config_by_profile: dict[str, UpstreamConfig],
+        *,  # make individual options keyword-only, so they can be safely added/removed in the future
+        balancing_strategy_type: str | None = None,
+    ) -> None:
+        self.config_by_profile = config_by_profile or {Upstream.DEFAULT_PROFILE: Upstream.get_default_config()}
+
+        parsed_strategy = BalancingStrategyType.try_parse_from_str(balancing_strategy_type)
+        if parsed_strategy is None and balancing_strategy_type is not None:
+            http_client_logger.error(
+                "Invalid balancing strategy '%s', will use default ('%s')",
+                balancing_strategy_type,
+                UpstreamConfigs.DEFAULT_BALANCING_STRATEGY,
+            )
+
+        self.balancing_strategy_type = parsed_strategy or UpstreamConfigs.DEFAULT_BALANCING_STRATEGY
+
+    def __str__(self) -> str:
+        return f'{{config_by_profile={self.config_by_profile}, balancing_strategy_type={self.balancing_strategy_type}}}'
+
+
 class Upstream:
     DEFAULT_PROFILE = 'default'
 
-    def __init__(self, name: str, config_by_profile: dict[str, UpstreamConfig], servers: list[Server]):
+    def __init__(self, name: str, upstream_configs: UpstreamConfigs, servers: list[Server]) -> None:
         self.name = name
-        self.servers: list[Server] = []
-        self.config_by_profile = config_by_profile or {Upstream.DEFAULT_PROFILE: self.get_default_config()}
+        self.servers: list[Server | None] = []
+        self.upstream_configs = upstream_configs
         self._update_servers(servers)
         self.allow_cross_dc_requests = (
             options.http_client_allow_cross_datacenter_requests
@@ -300,23 +347,26 @@ class Upstream:
                     if rescale[local_or_remote]:
                         server.rescale_stats_requests()
 
-    def update(self, upstream):
-        self.config_by_profile = upstream.config_by_profile
+    def update(self, upstream: Self) -> None:
+        self.upstream_configs = upstream.upstream_configs
         self._update_servers(upstream.servers)
 
-    def get_config(self, profile) -> UpstreamConfig:
+    def get_config(self, profile: str) -> UpstreamConfig:
         if not profile:
             profile = Upstream.DEFAULT_PROFILE
-        config = self.config_by_profile.get(profile)
+        config = self.upstream_configs.config_by_profile.get(profile)
         if config is None:
             raise ValueError(f'Profile {profile} should be present')
         return config
 
+    def is_adaptive(self) -> bool:
+        return self.upstream_configs.balancing_strategy_type == BalancingStrategyType.ADAPTIVE
+
     @staticmethod
-    def get_default_config():
+    def get_default_config() -> UpstreamConfig:
         return UpstreamConfig()
 
-    def _update_servers(self, servers):
+    def _update_servers(self, servers: list[Server]) -> None:
         mapping = {server.address: server for server in servers}
 
         for index, server in enumerate(self.servers):
@@ -335,7 +385,7 @@ class Upstream:
                 self._add_server(server)
 
     def _add_server(self, server):
-        slow_start_interval = self.config_by_profile.get(Upstream.DEFAULT_PROFILE).slow_start_interval
+        slow_start_interval = self.get_config(Upstream.DEFAULT_PROFILE).slow_start_interval
         server.set_slow_start_end_time_if_needed(slow_start_interval)
         for index, s in enumerate(self.servers):
             if s is None:
@@ -485,7 +535,7 @@ class BalancingState:
         host, datacenter, hostname = self.upstream.acquire_server(self.tried_servers)
         self.set_current_server(host, datacenter, hostname)
 
-    def set_current_server(self, host, datacenter, hostname):
+    def set_current_server(self, host: str | None, datacenter: str | None, hostname: str | None) -> None:
         self.current_host = host
         self.current_datacenter = datacenter
         self.current_hostname = hostname
@@ -494,36 +544,37 @@ class BalancingState:
         if self.is_server_available():
             self.upstream.release_server(self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error)
 
+    @classmethod
+    def get_balancing_strategy_type(cls) -> BalancingStrategyType:
+        return BalancingStrategyType.WEIGHTED
+
 
 class AdaptiveBalancingState(BalancingState):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.adaptive_failed = False
         self.server_entry_iterator = None
 
     def acquire_server(self):
-        if not self.adaptive_failed:
-            try:
-                host, datacenter, hostname = self.acquire_adaptive_server()
-                self.set_current_server(host, datacenter, hostname)
-                return
-            except Exception:
-                http_client_logger.exception('failed to acquire adaptive servers, falling back to nonadaptive')
-                self.adaptive_failed = True
-        super().acquire_server()
+        host, datacenter, hostname = self.acquire_adaptive_server()
+        self.set_current_server(host, datacenter, hostname)
 
     def release_server(self, elapsed_time, is_server_error):
         if self.is_server_available():
             self.upstream.release_server(
-                self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error, not self.adaptive_failed
+                self.current_host, len(self.tried_servers) > 0, elapsed_time, is_server_error, adaptive=True
             )
 
-    def acquire_adaptive_server(self):
+    def acquire_adaptive_server(self) -> tuple[str | None, str | None, str | None]:
         if self.server_entry_iterator is None:
             entries = self.upstream.acquire_adaptive_servers(self.profile)
             self.server_entry_iterator = iter(entries)
 
         return next(self.server_entry_iterator, (None, None, None))
+
+    @classmethod
+    @override
+    def get_balancing_strategy_type(cls) -> BalancingStrategyType:
+        return BalancingStrategyType.ADAPTIVE
 
 
 class RequestBalancer(RequestEngine):
@@ -711,6 +762,7 @@ class RequestBalancer(RequestEngine):
                 dc=request.upstream_datacenter,
                 final='false' if do_retry else 'true',
                 status=result.status_code,
+                balancing=self._get_balancing_strategy_type() or 'unknown',
             )
             self.statsd_client.time(
                 'http.client.request.time',
@@ -750,6 +802,9 @@ class RequestBalancer(RequestEngine):
 
     def get_trace(self):
         return ' -> '.join([f'{host}~{data.responseCode}~{data.msg}' for host, data in self.trace.items()])
+
+    def _get_balancing_strategy_type(self) -> str | None:
+        raise NotImplementedError
 
 
 class ExternalUrlRequestor(RequestBalancer):
@@ -794,6 +849,10 @@ class ExternalUrlRequestor(RequestBalancer):
     def _check_retry(self, response: RequestResult, is_idempotent):
         do_retry = super()._check_retry(response, is_idempotent)
         return do_retry and self.DEFAULT_RETRY_POLICY.is_retriable(response, is_idempotent)
+
+    @override
+    def _get_balancing_strategy_type(self) -> str | None:
+        return 'externalRequest'
 
 
 class UpstreamRequestBalancer(RequestBalancer):
@@ -861,6 +920,10 @@ class UpstreamRequestBalancer(RequestBalancer):
     def _on_retry(self):
         self.state.increment_tries()
 
+    @override
+    def _get_balancing_strategy_type(self) -> str | None:
+        return self.state.get_balancing_strategy_type().value
+
 
 class RequestBalancerBuilder(RequestEngineBuilder):
     def __init__(self, upstream_getter: Callable[[str], Optional[Upstream]], statsd_client=None, kafka_producer=None):
@@ -893,7 +956,7 @@ class RequestBalancerBuilder(RequestEngineBuilder):
                 self.kafka_producer,
             )
         else:
-            if options.http_client_adaptive_strategy:
+            if options.http_client_adaptive_strategy or upstream.is_adaptive():
                 state = AdaptiveBalancingState(upstream, profile)
             else:
                 state = BalancingState(upstream, profile)

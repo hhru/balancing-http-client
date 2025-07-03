@@ -3,7 +3,7 @@ import socket
 import pytest
 
 from http_client import HttpClientFactory, options
-from http_client.balancing import RequestBalancerBuilder, Server, Upstream, UpstreamConfig
+from http_client.balancing import RequestBalancerBuilder, Server, Upstream, UpstreamConfig, UpstreamConfigs
 
 
 class TestBase:
@@ -29,7 +29,7 @@ class BalancingClientMixin:
         self.balancing_client = self.http_client_factory.get_http_client()
         options.datacenter = 'test'
 
-    def get_upstream_config(self):
+    def get_upstream_config(self) -> dict[str, UpstreamConfig]:
         return {
             Upstream.DEFAULT_PROFILE: UpstreamConfig(max_tries=3, request_timeout=0.5),
             'one_try': UpstreamConfig(max_tries=1, request_timeout=0.5),
@@ -38,5 +38,5 @@ class BalancingClientMixin:
 
     def register_ports_for_upstream(self, *ports):
         self.servers = [Server(f'127.0.0.1:{port}', hostname='destHost', dc='test') for port in ports]
-        upstream = Upstream('test', self.get_upstream_config(), self.servers)
+        upstream = Upstream('test', UpstreamConfigs(self.get_upstream_config()), self.servers)
         _upstreams[upstream.name] = upstream
