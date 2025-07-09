@@ -9,7 +9,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from enum import Enum, unique
 from random import random
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
@@ -20,6 +20,11 @@ from http_client.model.consul_config import RetryPolicies
 from http_client.options import options
 from http_client.request_response import FailFastError, NoAvailableServerException, ResponseData
 from http_client.util import utf8, weighted_sample
+
+if TYPE_CHECKING:
+    from aiokafka import AIOKafkaProducer
+    from pystatsd import StatsDClientABC
+
 
 DOWNTIME_DETECTOR_WINDOW = 100
 RESPONSE_TIME_TRACKER_WINDOW = 500
@@ -593,7 +598,7 @@ class RequestBalancer(RequestEngine):
         max_tries,
         speculative_timeout_pct,
         session_required,
-        statsd_client,
+        statsd_client: StatsDClientABC | None,
         kafka_producer,
     ):
         request.session_required = session_required
@@ -754,7 +759,6 @@ class RequestBalancer(RequestEngine):
         request = self.request
 
         if self.statsd_client is not None:
-            self.statsd_client.stack()
             self.statsd_client.count(
                 'http.client.requests',
                 1,
@@ -780,7 +784,6 @@ class RequestBalancer(RequestEngine):
                     tries=tries_used,
                     status=result.status_code,
                 )
-            self.statsd_client.flush()
 
         if self.kafka_producer is not None and not do_retry:
             dc = request.upstream_datacenter or options.datacenter or 'unknown'
@@ -820,7 +823,7 @@ class ExternalUrlRequestor(RequestBalancer):
         parse_response,
         parse_on_error,
         fail_fast,
-        statsd_client=None,
+        statsd_client: StatsDClientABC | None = None,
         kafka_producer=None,
     ):
         default_config = Upstream.get_default_config()
@@ -871,7 +874,7 @@ class UpstreamRequestBalancer(RequestBalancer):
         parse_response,
         parse_on_error,
         fail_fast,
-        statsd_client=None,
+        statsd_client: StatsDClientABC | None = None,
         kafka_producer=None,
     ):
         upstream_config = state.get_upstream_config()
@@ -926,7 +929,12 @@ class UpstreamRequestBalancer(RequestBalancer):
 
 
 class RequestBalancerBuilder(RequestEngineBuilder):
-    def __init__(self, upstream_getter: Callable[[str], Optional[Upstream]], statsd_client=None, kafka_producer=None):
+    def __init__(
+        self,
+        upstream_getter: Callable[[str], Upstream | None],
+        statsd_client: StatsDClientABC | None = None,
+        kafka_producer: AIOKafkaProducer | None = None,
+    ) -> None:
         self.upstream_getter = upstream_getter
         self.statsd_client = statsd_client
         self.kafka_producer = kafka_producer
