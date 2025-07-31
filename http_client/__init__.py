@@ -363,9 +363,18 @@ class AIOHttpClientWrapper:
                     proxy=request.proxy,
                 )
                 request.start_time = self._start_time.get()
-                response_body = await response.read()
+                response_streaming = response.headers.get('Content-Type') == 'text/event-stream'
+                if response_streaming:
+                    response_body = None
+                else:
+                    response_body = await response.read()
                 result = RequestResult(
-                    request, response.status, response, response_body, elapsed_time=self._elapsed_time.get()
+                    request,
+                    response.status,
+                    response,
+                    response_body,
+                    response_streaming=response_streaming,
+                    elapsed_time=self._elapsed_time.get(),
                 )
 
             except (ClientError, TimeoutError) as exc:
