@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import orjson
 
 try:
@@ -8,12 +10,20 @@ except ImportError:
 import base64
 import logging
 import re
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar
+
+if TYPE_CHECKING:
+    import types
+    from collections.abc import AsyncGenerator
+
+    from typing_extension import Self
+
 from dataclasses import dataclass
 from functools import partial
 from http.cookies import SimpleCookie
-from typing import Generic, Optional, TypeVar
 
 import aiohttp
+from aiohttp import StreamReader
 from aiohttp.client_reqrep import ClientResponse
 from aiohttp.typedefs import LooseHeaders
 from lxml import etree
@@ -50,7 +60,7 @@ class NoAvailableServerException(Exception):
 
 
 class FailFastError(Exception):
-    def __init__(self, failed_result: 'RequestResult'):
+    def __init__(self, failed_result: RequestResult[Any]) -> None:
         self.failed_result = failed_result
 
 
@@ -226,6 +236,7 @@ class RequestResult(Generic[T]):
         'parse_on_error',
         'parse_response',
         'request',
+        'response_streaming',
     )
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
@@ -235,11 +246,13 @@ class RequestResult(Generic[T]):
         request: RequestBuilder,
         status_code: int,
         response: Optional[ClientResponse] = None,
-        response_body: Optional[bytes] = None,
+        response_body: bytes | AsyncGenerator[bytes, None] | None = None,
         exc=None,
         elapsed_time=None,
+        *,
         parse_response=True,
         parse_on_error=False,
+        response_streaming: bool = False,
     ):
         self.name = request.name
         self.request = request
@@ -256,6 +269,8 @@ class RequestResult(Generic[T]):
         self._content_type: Optional[str] = None
         self._data: Optional[T] = None
         self._data_parse_error: Optional[DataParseError] = None
+
+        self.response_streaming = response_streaming
 
     def __repr__(self):
         args = ', '.join(f'{a}={getattr(self, a)!r}' for a in self._args)
@@ -287,6 +302,12 @@ class RequestResult(Generic[T]):
             self._data_parse_error = data_or_error
         else:
             self._data = data_or_error
+
+    @property
+    def streaming_content(self) -> StreamReader:
+        if self.response_streaming and self._response:
+            return self._response.content
+        raise ValueError
 
     @property
     def status_code(self) -> int:
@@ -394,3 +415,24 @@ class RequestResult(Generic[T]):
             return debug_response, fake_result
 
         return None
+
+    async def iter_content(self) -> AsyncGenerator[bytes, None]:
+        if not self._response:
+            return
+        async for chunk in self._response.content:
+            yield chunk
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        if self._response:
+            await self._response.release()
