@@ -363,7 +363,7 @@ class AIOHttpClientWrapper:
                     proxy=request.proxy,
                 )
                 request.start_time = self._start_time.get()
-                response_streaming = response.headers.get('Content-Type') == 'text/event-stream'
+                response_streaming = 'text/event-stream' in response.headers.get('Content-Type', {})
                 if response_streaming:
                     response_body = None
                 else:
