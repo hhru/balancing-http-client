@@ -9,31 +9,31 @@ description = 'Balancing http client around aiohttp'
 authors = ['architecture <arch-team@hh.ru>']
 
 [[tool.poetry.source]]
-name = "pypi-mirror"
-url = "https://devpi.pyn.ru/root/pypi/+simple/"
-priority = "primary"
+name = 'pypi-mirror'
+url = 'https://devpi.pyn.ru/root/pypi/+simple/'
+priority = 'supplemental'
 
 [[tool.poetry.source]]
-name = "hhdev"
-url = "https://devpi.pyn.ru/hh/hhdev/+simple/"
-priority = "explicit"
+name = 'hhdev'
+url = 'https://devpi.pyn.ru/hh/hhdev/+simple/'
+priority = 'primary'
 
 [tool.poetry.dependencies]
-python = '>=3.9,<3.14'
-aiohttp = '>=3.8.3, <4.0.0'
+python = '>=3.9,<4'
+aiohttp = '>=3.8.3'
 lxml = '5.3.0'
 yarl = '1.18.3'
 orjson = '*'
 pydantic = '>2,<3'
 aiokafka = '*'
-pystatsd = {version = '>=1,<2', source = 'hhdev'}
+pystatsd = {version = '>=1', source = 'hhdev'}
 
 [tool.poetry.group.test.dependencies]
 pytest = '8.3.3'
 pytest-asyncio = '0.24.0'
 pytest-httpserver = '1.0.8'
 exceptiongroup = '1.2.0'
-pystolint = '0.2.13'
+pystolint = '0.2.17'
 
 [tool.pytest.ini_options]
 testpaths = 'tests'
