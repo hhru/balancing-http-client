@@ -176,7 +176,7 @@ def xml_to_dict(xml):
     return {e.tag: xml_to_dict(e) for e in xml}
 
 
-def restore_original_datacenter_name(datacenter):
+def restore_original_datacenter_name(datacenter: str) -> str:
     for dc in options.datacenters:
         if dc.lower() == datacenter:
             return dc
