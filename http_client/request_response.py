@@ -1,36 +1,31 @@
 from __future__ import annotations
 
-import orjson
-
-try:
-    import ujson as json
-except ImportError:
-    import json
-
 import base64
+import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar
-
-if TYPE_CHECKING:
-    import types
-    from collections.abc import AsyncGenerator
-
-    from typing_extension import Self
-
 from dataclasses import dataclass
 from functools import partial
 from http.cookies import SimpleCookie
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar
 
 import aiohttp
+import orjson
 from aiohttp import StreamReader
 from aiohttp.client_reqrep import ClientResponse
-from aiohttp.typedefs import LooseHeaders
 from lxml import etree
-from multidict import CIMultiDict
+from multidict import CIMultiDict, CIMultiDictProxy
 
 from http_client.options import options
+from http_client.parsing.response_parser import any_to
 from http_client.util import make_body, make_form_data, make_mfd, make_url, to_unicode, xml_to_dict
+
+if TYPE_CHECKING:
+    import types
+    from collections.abc import AsyncGenerator, Callable
+
+    from typing_extension import Self
+
 
 USER_AGENT_HEADER = 'User-Agent'
 DEADLINE_TIMEOUT_MS_HEADER = 'X-Deadline-Timeout-Ms'
@@ -51,11 +46,15 @@ class ResponseData:
 class DataParseError:
     __slots__ = ('attrs',)
 
-    def __init__(self, **attrs):
+    def __init__(self, **attrs: str | None) -> None:
         self.attrs = attrs
 
 
 class NoAvailableServerException(Exception):
+    pass
+
+
+class ParsingError(Exception):
     pass
 
 
@@ -99,7 +98,7 @@ class RequestBuilder:
         name: str,
         method='GET',
         data=None,
-        headers: Optional[LooseHeaders] = None,
+        headers: dict[str, str | int] | None = None,
         files=None,
         content_type=None,
         connect_timeout=None,
@@ -229,7 +228,6 @@ class RequestResult(Generic[T]):
         '_data_parse_error',
         '_response',
         '_response_body',
-        '_status_code',
         'elapsed_time',
         'exc',
         'name',
@@ -237,6 +235,7 @@ class RequestResult(Generic[T]):
         'parse_response',
         'request',
         'response_streaming',
+        'status_code',
     )
 
     _args = ('request', '_response', 'parse_response', 'parse_on_error')
@@ -263,7 +262,7 @@ class RequestResult(Generic[T]):
         self.parse_response = parse_response
         self.parse_on_error = parse_on_error
 
-        self._status_code: int = status_code
+        self.status_code: int = status_code
         self._response: Optional[ClientResponse] = response
         self._response_body: Optional[bytes] = response_body
         self._content_type: Optional[str] = None
@@ -281,7 +280,11 @@ class RequestResult(Generic[T]):
             return
 
         if self.exc is not None or (self.status_code >= 400 and not self.parse_on_error):
-            self._data_parse_error = DataParseError(reason=self.error, code=self.status_code)
+            self._data_parse_error = DataParseError(reason=self.error, code=str(self.status_code))
+            return
+
+        if self._response is None:
+            self._data_parse_error = DataParseError(reason=self.error, code=str(self.status_code))
             return
 
         if not self.parse_response or self.status_code == 204:
@@ -293,8 +296,7 @@ class RequestResult(Generic[T]):
         content_type = self.headers.get('Content-Type', '')
         for name, (regex, parser) in RESPONSE_CONTENT_TYPES.items():
             if regex.search(content_type):
-                real_url = self.request.url if self.exc is not None else self._response.real_url
-                data_or_error = parser(self._response_body, real_url)
+                data_or_error = parser(self._response_body, self._response.real_url)
                 self._content_type = name
                 break
 
@@ -303,15 +305,22 @@ class RequestResult(Generic[T]):
         else:
             self._data = data_or_error
 
+    def parse(self, dto_class: type[T]) -> T:
+        return self.parse_with(any_to(dto_class))
+
+    def parse_with(self, parsing_function: Callable[[int, bytes | None, CIMultiDictProxy[str]], T]) -> T:
+        self.parse_response = False
+        self.parse_on_error = False
+        try:
+            return parsing_function(self.status_code, self._response_body, self.headers)
+        except Exception as ex:
+            raise ParsingError from ex
+
     @property
     def streaming_content(self) -> StreamReader:
         if self.response_streaming and self._response:
             return self._response.content
         raise ValueError
-
-    @property
-    def status_code(self) -> int:
-        return self._status_code
 
     @property
     def error(self) -> Optional[str]:
@@ -322,10 +331,10 @@ class RequestResult(Generic[T]):
         return str(self.exc)
 
     @property
-    def headers(self):
+    def headers(self) -> CIMultiDictProxy[str]:
         if self._response is not None:
             return self._response.headers
-        return CIMultiDict()
+        return CIMultiDictProxy(CIMultiDict({}))
 
     @property
     def cookies(self):

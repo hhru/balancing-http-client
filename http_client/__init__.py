@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import abc
 import asyncio
 import contextvars
 import time
 from asyncio import TimeoutError
+from typing import Any
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ClientError, ServerTimeoutError
@@ -47,28 +50,30 @@ class RequestEngineBuilder(abc.ABC):
 
 
 class HttpClient:
-    def __init__(self, http_client_impl, source_app, request_engine_builder: RequestEngineBuilder):
+    def __init__(
+        self, http_client_impl: AIOHttpClientWrapper, source_app: str, request_engine_builder: RequestEngineBuilder
+    ) -> None:
         self.http_client_impl = http_client_impl
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder
 
     async def get_url(
         self,
-        host,
-        path,
+        host: str,
+        path: str,
         *,
-        name=None,
-        data=None,
-        headers=None,
-        follow_redirects=True,
-        profile=None,
-        connect_timeout=None,
-        request_timeout=None,
-        max_timeout_tries=None,
-        parse_response=True,
-        parse_on_error=True,
-        fail_fast=False,
-        speculative_timeout_pct=None,
+        name: str | None = None,
+        data: dict[Any, Any] | Any = None,
+        headers: dict[str, str | int] | None = None,
+        follow_redirects: bool = True,
+        profile: str | None = None,
+        connect_timeout: float | None = None,
+        request_timeout: float | None = None,
+        max_timeout_tries: int | None = None,
+        parse_response: bool = True,
+        parse_on_error: bool = True,
+        fail_fast: bool = False,
+        speculative_timeout_pct: float | None = None,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -103,19 +108,19 @@ class HttpClient:
 
     async def head_url(
         self,
-        host,
-        path,
+        host: str,
+        path: str,
         *,
-        name=None,
-        data=None,
-        headers=None,
-        follow_redirects=True,
-        profile=None,
-        connect_timeout=None,
-        request_timeout=None,
-        max_timeout_tries=None,
-        fail_fast=False,
-        speculative_timeout_pct=None,
+        name: str | None = None,
+        data: dict[Any, Any] | Any = None,
+        headers: dict[str, str | int] | None = None,
+        follow_redirects: bool = True,
+        profile: str | None = None,
+        connect_timeout: float | None = None,
+        request_timeout: float | None = None,
+        max_timeout_tries: int | None = None,
+        fail_fast: bool = False,
+        speculative_timeout_pct: float | None = None,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -143,25 +148,25 @@ class HttpClient:
 
     async def post_url(
         self,
-        host,
-        path,
+        host: str,
+        path: str,
         *,
-        name=None,
-        data='',
-        headers=None,
-        files=None,
-        content_type=None,
-        follow_redirects=True,
-        profile=None,
-        connect_timeout=None,
-        request_timeout=None,
-        max_timeout_tries=None,
-        idempotent=False,
-        parse_response=True,
-        parse_on_error=True,
-        fail_fast=False,
-        speculative_timeout_pct=None,
-        use_form_data=False,
+        name: str | None = None,
+        data: dict[Any, Any] | Any = '',
+        headers: dict[str, str | int] | None = None,
+        files: dict[Any, Any] | None = None,
+        content_type: str | None = None,
+        follow_redirects: bool = True,
+        profile: str | None = None,
+        connect_timeout: float | None = None,
+        request_timeout: float | None = None,
+        max_timeout_tries: int | None = None,
+        idempotent: bool = False,
+        parse_response: bool = True,
+        parse_on_error: bool = True,
+        fail_fast: bool = False,
+        speculative_timeout_pct: float | None = None,
+        use_form_data: bool = False,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -198,23 +203,23 @@ class HttpClient:
 
     async def put_url(
         self,
-        host,
-        path,
+        host: str,
+        path: str,
         *,
-        name=None,
-        data='',
-        headers=None,
-        content_type=None,
-        follow_redirects=True,
-        profile=None,
-        connect_timeout=None,
-        request_timeout=None,
-        max_timeout_tries=None,
-        idempotent=True,
-        parse_response=True,
-        parse_on_error=True,
-        fail_fast=False,
-        speculative_timeout_pct=None,
+        name: str | None = None,
+        data: dict[Any, Any] | Any = '',
+        headers: dict[str, str | int] | None = None,
+        content_type: str | None = None,
+        follow_redirects: bool = True,
+        profile: str | None = None,
+        connect_timeout: float | None = None,
+        request_timeout: float | None = None,
+        max_timeout_tries: int | None = None,
+        idempotent: bool = True,
+        parse_response: bool = True,
+        parse_on_error: bool = True,
+        fail_fast: bool = False,
+        speculative_timeout_pct: float | None = None,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -250,21 +255,21 @@ class HttpClient:
 
     async def delete_url(
         self,
-        host,
-        path,
+        host: str,
+        path: str,
         *,
-        name=None,
-        data=None,
-        headers=None,
-        content_type=None,
-        profile=None,
-        connect_timeout=None,
-        request_timeout=None,
-        max_timeout_tries=None,
-        parse_response=True,
-        parse_on_error=True,
-        fail_fast=False,
-        speculative_timeout_pct=None,
+        name: str | None = None,
+        data: dict[Any, Any] | Any = None,
+        headers: dict[str, str | int] | None = None,
+        content_type: str | None = None,
+        profile: str | None = None,
+        connect_timeout: float | None = None,
+        request_timeout: float | None = None,
+        max_timeout_tries: int | None = None,
+        parse_response: bool = True,
+        parse_on_error: bool = True,
+        fail_fast: bool = False,
+        speculative_timeout_pct: float | None = None,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -389,7 +394,7 @@ class AIOHttpClientWrapper:
 
 
 class HttpClientFactory:
-    def __init__(self, source_app, request_engine_builder: RequestEngineBuilder):
+    def __init__(self, source_app: str, request_engine_builder: RequestEngineBuilder) -> None:
         self.http_client = AIOHttpClientWrapper()
         self.source_app = source_app
         self.request_engine_builder = request_engine_builder

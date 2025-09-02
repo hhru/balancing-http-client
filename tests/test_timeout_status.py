@@ -40,6 +40,15 @@ class TestBalancingInApplication(TestBase, BalancingClientMixin):
                 DEADLINE_TIMEOUT_MS_HEADER: small_timeout_ms + 1,
             },
         )
+        post_result = await self.balancing_client.get_url(
+            'test',
+            '/timeout',
+            request_timeout=small_timeout_s,
+            headers={
+                OUTER_TIMEOUT_MS_HEADER: small_timeout_ms,
+                DEADLINE_TIMEOUT_MS_HEADER: small_timeout_ms + 1,
+            },
+        )
         assert post_result.status_code == SERVER_TIMEOUT
 
         post_result = await self.balancing_client.get_url(

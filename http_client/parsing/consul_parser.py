@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, TypedDict
 
 from http_client.balancing import Server, UpstreamConfig, UpstreamConfigs
 from http_client.model.consul_config import ConsulConfig
@@ -9,11 +9,17 @@ from http_client.util import restore_original_datacenter_name
 consul_util_logger = logging.getLogger('consul_parser')
 
 
-def parse_consul_health_servers_data(values):
-    service_config = {}
+class ServiceConfig(TypedDict):
+    Address: str
+    Weight: int
+    Datacenter: str
+
+
+def parse_consul_health_servers_data(values: list[dict[str, Any]]) -> tuple[str, list[Server]]:
     servers = []
     dc = ''
     for v in values:
+        service_config: ServiceConfig = {'Address': '', 'Weight': 0, 'Datacenter': ''}
         node_name = v['Node']['Node'].lower()
         if len(v['Service']['Address']):
             service_config['Address'] = f'{v["Service"]["Address"]}:{v["Service"]["Port"]!s}'
@@ -24,17 +30,16 @@ def parse_consul_health_servers_data(values):
 
         dc = restore_original_datacenter_name(service_config['Datacenter'])
         if options.self_node_filter_enabled and _not_same_name(node_name):
-            consul_util_logger.debug(f'Self node filtering activated. Skip: {node_name}')
+            consul_util_logger.debug('Self node filtering activated. Skip: %s', node_name)
             continue
         servers.append(
             Server(address=service_config['Address'], hostname=node_name, weight=service_config['Weight'], dc=dc)
         )
-        service_config = {}
     return dc, servers
 
 
-def _not_same_name(node_name: str):
-    return len(node_name) and options.node_name.lower() != node_name
+def _not_same_name(node_name: str) -> bool:
+    return bool(len(node_name)) and options.node_name.lower() != node_name
 
 
 def parse_consul_upstream_config(consul_data: dict[str, Any]) -> UpstreamConfigs:
