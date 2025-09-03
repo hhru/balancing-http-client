@@ -46,7 +46,7 @@ class ResponseData:
 class DataParseError:
     __slots__ = ('attrs',)
 
-    def __init__(self, **attrs: str | None) -> None:
+    def __init__(self, **attrs: str | int | None) -> None:
         self.attrs = attrs
 
 
@@ -280,11 +280,11 @@ class RequestResult(Generic[T]):
             return
 
         if self.exc is not None or (self.status_code >= 400 and not self.parse_on_error):
-            self._data_parse_error = DataParseError(reason=self.error, code=str(self.status_code))
+            self._data_parse_error = DataParseError(reason=self.error, code=self.status_code)
             return
 
         if self._response is None:
-            self._data_parse_error = DataParseError(reason=self.error, code=str(self.status_code))
+            self._data_parse_error = DataParseError(reason=self.error, code=self.status_code)
             return
 
         if not self.parse_response or self.status_code == 204:
