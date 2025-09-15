@@ -153,7 +153,7 @@ class MockedRequest:
         resp._raw_headers = raw_headers
         resp.status = self.status
         resp.reason = self.reason
-        resp.content = StreamReader(ResponseHandler(loop=loop), limit=2**16, loop=loop)
+        resp.content = StreamReader(ResponseHandler(loop=loop), limit=2**24, loop=loop)
         if isinstance(self.body, AsyncGenerator):
             async for chunk in self.body:
                 resp.content.feed_data(chunk)

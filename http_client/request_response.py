@@ -76,6 +76,7 @@ class RequestBuilder:
         'name',
         'path',
         'proxy',
+        'read_bufsize',
         'request_time_left',
         'request_time_left',
         'request_timeout',
@@ -108,6 +109,7 @@ class RequestBuilder:
         follow_redirects=True,
         idempotent=True,
         use_form_data=False,
+        read_bufsize: int = 2**16,
     ):
         self.source_app = source_app
         self.host = host.rstrip('/')
@@ -125,6 +127,7 @@ class RequestBuilder:
         self.body = None
         self.start_time = None
         self.headers = CIMultiDict()
+        self.read_bufsize = read_bufsize
         if headers is not None:
             for key, value in headers.items():
                 self.headers.add(key, value if value is not None else '')
