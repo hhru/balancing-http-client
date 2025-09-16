@@ -74,6 +74,7 @@ class HttpClient:
         parse_on_error: bool = True,
         fail_fast: bool = False,
         speculative_timeout_pct: float | None = None,
+        read_bufsize: int = 2**16,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -92,6 +93,7 @@ class HttpClient:
             max_timeout_tries,
             speculative_timeout_pct,
             follow_redirects,
+            read_bufsize=read_bufsize,
         )
 
         request_engine = self.request_engine_builder.build(
@@ -167,6 +169,7 @@ class HttpClient:
         fail_fast: bool = False,
         speculative_timeout_pct: float | None = None,
         use_form_data: bool = False,
+        read_bufsize: int = 2**16,
     ) -> RequestResult:
         modify_http_request_hook, debug_enabled = extra_client_params.get()
 
@@ -187,6 +190,7 @@ class HttpClient:
             follow_redirects,
             idempotent,
             use_form_data,
+            read_bufsize,
         )
 
         request_engine = self.request_engine_builder.build(
@@ -366,6 +370,7 @@ class AIOHttpClientWrapper:
                     allow_redirects=request.follow_redirects,
                     timeout=request.timeout,
                     proxy=request.proxy,
+                    read_bufsize=request.read_bufsize,
                 )
                 request.start_time = self._start_time.get()
                 response_streaming = 'text/event-stream' in response.headers.get('Content-Type', {})
