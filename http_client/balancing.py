@@ -712,22 +712,19 @@ class RequestBalancer(RequestEngine):
     def _unwrap_debug(self, request, result: RequestResult, retries_count):
         debug_extra = {}
 
-        try:
-            if result.headers.get('X-Hh-Debug'):
+        if self.debug_enabled:
+            if result.headers and result.headers.get('X-Hh-Debug'):
                 debug_response = result.response_from_debug()
                 if debug_response is not None:
                     debug_xml, result = debug_response
                     debug_extra['_debug_response'] = debug_xml
 
-            if self.debug_enabled:
-                debug_extra.update({
-                    '_response': result,
-                    '_request': request,
-                    '_request_retry': retries_count,
-                    '_datacenter': result.request.upstream_datacenter,
-                })
-        except Exception:
-            http_client_logger.exception('Cannot get response from debug')
+            debug_extra.update({
+                '_response': result,
+                '_request': request,
+                '_request_retry': retries_count,
+                '_datacenter': result.request.upstream_datacenter,
+            })
 
         return result, debug_extra
 
