@@ -198,6 +198,8 @@ def _parse_response(response_body, real_url, parser, response_type):
         return DataParseError(reason=f'invalid {response_type}')
 
 
+_debug_xml_parser = etree.XMLParser(huge_tree=True)
+
 _xml_parser = etree.XMLParser(strip_cdata=False)
 _parse_response_xml = partial(
     _parse_response, parser=lambda body: etree.fromstring(body, parser=_xml_parser), response_type='xml'
@@ -384,8 +386,8 @@ class RequestResult(Generic[T]):
             return len(self._response_body)
         return None
 
-    def response_from_debug(self):
-        debug_response = etree.XML(self._response_body)
+    def response_from_debug(self) -> tuple[etree.Element, RequestResult[T]] | None:
+        debug_response = etree.fromstring(self._response_body, parser=_debug_xml_parser)
         original_response = debug_response.find('original-response')
 
         if original_response is not None:
