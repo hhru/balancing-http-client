@@ -31,19 +31,19 @@ RESPONSE_TIME_TRACKER_WINDOW = 500
 WARM_UP_DEFAULT_TIME_MILLIS = 100
 LOWEST_HEALTH_PERCENT = 2
 LOWEST_HEALTH = int(LOWEST_HEALTH_PERCENT * DOWNTIME_DETECTOR_WINDOW / 100)
-INITIAL_LIVE_PERCENT = 10
+INITIAL_HEALTH_PERCENT = 2
 
 http_client_logger = logging.getLogger('http_client')
 
 
 class DowntimeDetector:
-    def __init__(self, max_length=DOWNTIME_DETECTOR_WINDOW, initial_live_percent=INITIAL_LIVE_PERCENT):
-        if initial_live_percent < 0 or initial_live_percent > 100:
-            raise ValueError(f'Invalid initial_live_percent value: {initial_live_percent}')
+    def __init__(self, max_length=DOWNTIME_DETECTOR_WINDOW, initial_health_percent=INITIAL_HEALTH_PERCENT):
+        if initial_health_percent < 0 or initial_health_percent > 100:
+            raise ValueError(f'Invalid initial_health_percent value: {initial_health_percent}')
 
         self.max_length = max_length
         self.healths = collections.deque(maxlen=max_length)
-        ones = max_length * initial_live_percent // 100
+        ones = max_length * initial_health_percent // 100
         self.healths.extend([0] * (max_length - ones))
         self.healths.extend([1] * ones)
         self.health = ones
