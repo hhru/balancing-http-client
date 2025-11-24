@@ -299,16 +299,10 @@ class Upstream:
         self.servers: list[Server | None] = []
         self.upstream_configs = upstream_configs
         self._update_servers(servers)
-        self.allow_cross_dc_requests = (
-            options.http_client_allow_cross_datacenter_requests
-            or name in options.force_allow_cross_datacenter_for_upstreams
-        )
         self.datacenter: str = options.datacenter
 
     def acquire_server(self, excluded_servers=None):
-        index = BalancingStrategy.get_least_loaded_server(
-            self.servers, excluded_servers, self.datacenter, self.allow_cross_dc_requests
-        )
+        index = BalancingStrategy.get_least_loaded_server(self.servers, excluded_servers, self.datacenter)
 
         if index is None:
             return None, None, None
@@ -320,7 +314,7 @@ class Upstream:
     def acquire_adaptive_servers(self, profile: str):
         allowed_servers = []
         for server in self.servers:
-            if server is not None and (self.allow_cross_dc_requests or self.datacenter == server.datacenter):
+            if server is not None:
                 allowed_servers.append(server)
 
         chosen_servers = AdaptiveBalancingStrategy.get_servers(allowed_servers, self.get_config(profile).max_tries)
@@ -338,7 +332,7 @@ class Upstream:
             self.rescale(self.servers)
 
     def rescale(self, servers):
-        rescale = [True, self.allow_cross_dc_requests]
+        rescale = [True, True]
 
         for server in servers:
             if server is not None:
@@ -405,7 +399,9 @@ class Upstream:
 
 class BalancingStrategy:
     @staticmethod
-    def get_least_loaded_server(servers, excluded_servers, current_datacenter, allow_cross_dc_requests):
+    def get_least_loaded_server(
+        servers: list[Server | None], excluded_servers: list[int], current_datacenter: str
+    ) -> int:
         min_index = None
         min_weight = None
 
@@ -414,9 +410,6 @@ class BalancingStrategy:
                 continue
 
             is_different_dc = server.datacenter != current_datacenter
-
-            if is_different_dc and not allow_cross_dc_requests:
-                continue
 
             stat_load = server.get_stat_load(servers)
             weight = (excluded_servers is not None and server.address in excluded_servers, is_different_dc, stat_load)
