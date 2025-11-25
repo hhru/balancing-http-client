@@ -1,3 +1,12 @@
+-   name: 5.0.0
+    date: '2025-11-25T12:13:49.159986+03:00'
+    description: Настройки `http_client_allow_cross_datacenter_requests` и `force_allow_cross_datacenter_for_upstreams`
+        больше не обрабатываются. Из класса Upstream удалено поле allow_cross_dc_requests,
+        балансировка будет осуществляться по всем серверам, которые передаются в Upstream
+    instructions: Необходимо обрабатывать настройку кросс дц в своем коде и передавать
+        в Upstream только те сервера, на которые необходимо балансировать запросы
+    compatible: false
+
 -   name: 4.0.9
     date: '2025-11-10T12:03:16.935742+03:00'
     description: Сняты лимиты на размер XML при парсинге debug-ответа. И ошибка парсинга
