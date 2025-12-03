@@ -16,9 +16,10 @@ from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 from typing_extensions import Self, override
 
 from http_client import RequestBuilder, RequestEngine, RequestEngineBuilder, RequestResult
+from http_client.exceptions import NoAvailableServerError
 from http_client.model.consul_config import RetryPolicies
 from http_client.options import options
-from http_client.request_response import FailFastError, NoAvailableServerException, ResponseData
+from http_client.request_response import FailFastError, ResponseData
 from http_client.util import utf8, weighted_sample
 
 if TYPE_CHECKING:
@@ -851,7 +852,7 @@ class ExternalUrlRequestor(RequestBalancer):
 class UpstreamRequestBalancer(RequestBalancer):
     @staticmethod
     def _get_server_not_available_result(request: RequestBuilder, upstream_name) -> RequestResult:
-        exc = NoAvailableServerException(f'No available servers for upstream: {upstream_name}')
+        exc = NoAvailableServerError(f'No available servers for upstream: {upstream_name}')
         return RequestResult(request, 599, exc=exc, elapsed_time=0)
 
     def __init__(

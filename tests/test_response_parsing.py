@@ -8,8 +8,9 @@ import pytest
 from multidict import CIMultiDict
 from pydantic import BaseModel
 
+from http_client.exceptions import ParsingError
 from http_client.parsing.response_parser import StatusCodeFamily, any_to, dict_config
-from http_client.request_response import ParsingError, RequestBuilder, RequestResult
+from http_client.request_response import RequestBuilder, RequestResult
 
 if TYPE_CHECKING:
     from multidict import CIMultiDictProxy
