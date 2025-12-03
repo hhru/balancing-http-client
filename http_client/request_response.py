@@ -16,6 +16,7 @@ from aiohttp.client_reqrep import ClientResponse
 from lxml import etree
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from http_client.exceptions import DataParseError, ParsingError
 from http_client.options import options
 from http_client.parsing.response_parser import any_to
 from http_client.util import make_body, make_form_data, make_mfd, make_url, to_unicode, xml_to_dict
@@ -41,21 +42,6 @@ http_client_logger = logging.getLogger('http_client')
 class ResponseData:
     responseCode: Optional[int]
     msg: str
-
-
-class DataParseError:
-    __slots__ = ('attrs',)
-
-    def __init__(self, **attrs: str | int | None) -> None:
-        self.attrs = attrs
-
-
-class NoAvailableServerException(Exception):
-    pass
-
-
-class ParsingError(Exception):
-    pass
 
 
 class FailFastError(Exception):
@@ -318,6 +304,8 @@ class RequestResult(Generic[T]):
         self.parse_on_error = False
         try:
             return parsing_function(self.status_code, self._response_body, self.headers)
+        except ParsingError:
+            raise
         except Exception as ex:
             raise ParsingError from ex
 

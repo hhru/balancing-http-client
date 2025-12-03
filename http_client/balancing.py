@@ -16,9 +16,10 @@ from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 from typing_extensions import Self, override
 
 from http_client import RequestBuilder, RequestEngine, RequestEngineBuilder, RequestResult
+from http_client.exceptions import NoAvailableServerException
 from http_client.model.consul_config import RetryPolicies
 from http_client.options import options
-from http_client.request_response import FailFastError, NoAvailableServerException, ResponseData
+from http_client.request_response import FailFastError, ResponseData
 from http_client.util import utf8, weighted_sample
 
 if TYPE_CHECKING:
