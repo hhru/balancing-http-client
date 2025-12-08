@@ -4,6 +4,8 @@ import re
 from enum import Enum
 from typing import TYPE_CHECKING, Any, TypeVar, Union
 
+from http_client.exceptions import ParsingError
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -39,7 +41,12 @@ def __parse_to_dto(dto_class: type[T], response_body: bytes | None) -> T:
     if hasattr(dto_class, 'load_from_bytes'):
         return dto_class.load_from_bytes(response_body)  # type: ignore[no-any-return, attr-defined]
     elif hasattr(dto_class, 'model_validate_json'):
-        return dto_class.model_validate_json(response_body)  # type: ignore[no-any-return, attr-defined]
+        try:
+            return dto_class.model_validate_json(response_body)  # type: ignore[no-any-return, attr-defined]
+        except Exception as exc:
+            if hasattr(exc, 'errors'):
+                raise ParsingError(exc.errors()) from exc
+            raise
     else:
         raise ValueError(f'Unexpected Dto class {dto_class}')
 
