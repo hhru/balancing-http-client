@@ -1,3 +1,9 @@
+-   name: 5.0.1
+    date: '2025-12-08T14:34:51.719385+03:00'
+    description: ''
+    instructions: ''
+    compatible: true
+
 -   name: 5.0.0
     date: '2025-11-25T12:13:49.159986+03:00'
     description: Настройки `http_client_allow_cross_datacenter_requests` и `force_allow_cross_datacenter_for_upstreams`
