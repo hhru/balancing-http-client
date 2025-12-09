@@ -296,7 +296,7 @@ class RequestResult(Generic[T]):
         else:
             self._data = data_or_error
 
-    def parse(self, dto_class: type[T]) -> T:
+    async def parse(self, dto_class: type[T]) -> T:
         return self.parse_with(any_to(dto_class))
 
     def parse_with(self, parsing_function: Callable[[int, bytes | None, CIMultiDictProxy[str]], T]) -> T:

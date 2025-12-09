@@ -66,8 +66,8 @@ class TestResponseParsing:
             elapsed_time=0.1,
         )
 
-    def test_parse_with_simple_type(self, request_result: RequestResult[UserDTO]) -> None:
-        result: UserDTO = request_result.parse(UserDTO)
+    async def test_parse_with_simple_type(self, request_result: RequestResult[UserDTO]) -> None:
+        result: UserDTO = await request_result.parse(UserDTO)
 
         assert isinstance(result, UserDTO)
         assert result.id == 1
@@ -82,10 +82,10 @@ class TestResponseParsing:
         assert result.name == 'John Doe'
         assert result.email == 'john@example.com'
 
-    def test_parse_with_custom_dto_class(self, request_result: RequestResult[CustomDTO]) -> None:
+    async def test_parse_with_custom_dto_class(self, request_result: RequestResult[CustomDTO]) -> None:
         request_result._response_body = json.dumps({'key': 'value'}).encode('utf-8')
 
-        result: CustomDTO = request_result.parse(CustomDTO)
+        result: CustomDTO = await request_result.parse(CustomDTO)
 
         assert isinstance(result, CustomDTO)
         assert result.data == {'key': 'value'}
