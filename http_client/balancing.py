@@ -38,23 +38,46 @@ http_client_logger = logging.getLogger('http_client')
 
 
 class DowntimeDetector:
-    def __init__(self, max_length=DOWNTIME_DETECTOR_WINDOW, initial_live_percent=INITIAL_LIVE_PERCENT):
+    def __init__(self, max_length: int = DOWNTIME_DETECTOR_WINDOW) -> None:
+        self.max_length = max_length
+        self.healths: collections.deque[int] = collections.deque(maxlen=max_length)
+        self._health = 0
+        self._initialized = False
+
+    @property
+    def health(self) -> int:
+        self._ensure_initialized()
+        return self._health
+
+    def initialize(self, initial_live_percent: int | None = None) -> None:
+        if self._initialized:
+            return
+
+        if initial_live_percent is None:
+            initial_live_percent = INITIAL_LIVE_PERCENT
+
         if initial_live_percent < 0 or initial_live_percent > 100:
             raise ValueError(f'Invalid initial_live_percent value: {initial_live_percent}')
 
-        self.max_length = max_length
-        self.healths = collections.deque(maxlen=max_length)
-        ones = max_length * initial_live_percent // 100
-        self.healths.extend([0] * (max_length - ones))
+        ones = self.max_length * initial_live_percent // 100
+        self.healths.extend([0] * (self.max_length - ones))
         self.healths.extend([1] * ones)
-        self.health = ones
+        self._health = ones
+        self._initialized = True
+
+    def _ensure_initialized(self) -> None:
+        if not self._initialized:
+            # Initialize with default value if not explicitly initialized
+            self.initialize(INITIAL_LIVE_PERCENT)
 
     def add_fail(self):
-        self.health -= self.healths[0]
+        self._ensure_initialized()
+        self._health -= self.healths[0]
         self.healths.append(0)
 
     def add_success(self):
-        self.health += 1 - self.healths[0]
+        self._ensure_initialized()
+        self._health += 1 - self.healths[0]
         self.healths.append(1)
 
 
@@ -220,6 +243,7 @@ class UpstreamConfig:
         slow_start_interval: int | None = None,
         retry_policy: RetryPolicies | None = None,
         session_required: bool | None = None,
+        initial_health_percent: int | None = None,
     ) -> None:
         self.max_tries = int(options.http_client_default_max_tries if max_tries is None else max_tries)
         self.max_timeout_tries = int(
@@ -237,6 +261,9 @@ class UpstreamConfig:
         self.session_required = (
             options.http_client_default_session_required if session_required is None else session_required
         ) is True
+        self.initial_health_percent = int(
+            INITIAL_LIVE_PERCENT if initial_health_percent is None else initial_health_percent
+        )
 
     def __repr__(self):
         return (
@@ -275,8 +302,10 @@ class UpstreamConfigs:
         config_by_profile: dict[str, UpstreamConfig],
         *,  # make individual options keyword-only, so they can be safely added/removed in the future
         balancing_strategy_type: str | None = None,
+        initial_health_percent: int | None = None,
     ) -> None:
         self.config_by_profile = config_by_profile or {Upstream.DEFAULT_PROFILE: Upstream.get_default_config()}
+        self.initial_health_percent = initial_health_percent
 
         parsed_strategy = BalancingStrategyType.try_parse_from_str(balancing_strategy_type)
         if parsed_strategy is None and balancing_strategy_type is not None:
@@ -387,6 +416,8 @@ class Upstream:
     def _add_server(self, server):
         slow_start_interval = self.get_config(Upstream.DEFAULT_PROFILE).slow_start_interval
         server.set_slow_start_end_time_if_needed(slow_start_interval)
+        initial_health_percent = self.upstream_configs.initial_health_percent
+        server.downtime_detector.initialize(initial_health_percent)
         for index, s in enumerate(self.servers):
             if s is None:
                 self.servers[index] = server

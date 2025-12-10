@@ -58,4 +58,8 @@ def parse_consul_upstream_config(consul_data: dict[str, Any]) -> UpstreamConfigs
             session_required=profile_config.session_required,
         )
 
-    return UpstreamConfigs(config_by_profile, balancing_strategy_type=config.balancing_strategy)
+    return UpstreamConfigs(
+        config_by_profile,
+        balancing_strategy_type=config.balancing_strategy,
+        initial_health_percent=config.initial_health_percent,
+    )
