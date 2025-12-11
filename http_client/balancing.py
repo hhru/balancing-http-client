@@ -57,7 +57,7 @@ class DowntimeDetector:
             initial_health_percent = INITIAL_HEALTH_PERCENT
 
         if initial_health_percent < 0 or initial_health_percent > 100:
-            raise ValueError(f'Invalid initial_live_percent value: {initial_health_percent}')
+            raise ValueError(f'Invalid initial_health_percent value: {initial_health_percent}')
 
         ones = self.max_length * initial_health_percent // 100
         self.healths.extend([0] * (self.max_length - ones))
@@ -243,7 +243,6 @@ class UpstreamConfig:
         slow_start_interval: int | None = None,
         retry_policy: RetryPolicies | None = None,
         session_required: bool | None = None,
-        initial_health_percent: int | None = None,
     ) -> None:
         self.max_tries = int(options.http_client_default_max_tries if max_tries is None else max_tries)
         self.max_timeout_tries = int(

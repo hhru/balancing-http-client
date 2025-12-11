@@ -67,15 +67,15 @@ class TestResponseParsing:
         )
 
     async def test_parse_with_simple_type(self, request_result: RequestResult[UserDTO]) -> None:
-        result: UserDTO = request_result.parse(UserDTO)
+        result: UserDTO = await request_result.parse(UserDTO)
 
         assert isinstance(result, UserDTO)
         assert result.id == 1
         assert result.name == 'John Doe'
         assert result.email == 'john@example.com'
 
-    def test_parse_with_function(self, request_result: RequestResult[UserDTO]) -> None:
-        result: UserDTO = request_result.parse_with(any_to(UserDTO))
+    async def test_parse_with_function(self, request_result: RequestResult[UserDTO]) -> None:
+        result: UserDTO = await request_result.parse_with(any_to(UserDTO))
 
         assert isinstance(result, UserDTO)
         assert result.id == 1
@@ -85,48 +85,48 @@ class TestResponseParsing:
     async def test_parse_with_custom_dto_class(self, request_result: RequestResult[CustomDTO]) -> None:
         request_result._response_body = json.dumps({'key': 'value'}).encode('utf-8')
 
-        result: CustomDTO = request_result.parse(CustomDTO)
+        result: CustomDTO = await request_result.parse(CustomDTO)
 
         assert isinstance(result, CustomDTO)
         assert result.data == {'key': 'value'}
 
-    def test_parse_with_dict_mapping_simple(self, request_result: RequestResult[Any]) -> None:
+    async def test_parse_with_dict_mapping_simple(self, request_result: RequestResult[Any]) -> None:
         status_mapping: dict[int, type] = {200: UserDTO, 404: NotFoundDTO, 500: ErrorDTO}
 
-        result: UserDTO | NotFoundDTO | ErrorDTO = request_result.parse_with(dict_config(status_mapping))
+        result: UserDTO | NotFoundDTO | ErrorDTO = await request_result.parse_with(dict_config(status_mapping))
 
         assert isinstance(result, UserDTO)
         assert result.id == 1
         assert result.name == 'John Doe'
 
-    def test_parse_with_dict_mapping_tuple(self, request_result: RequestResult[Any]) -> None:
+    async def test_parse_with_dict_mapping_tuple(self, request_result: RequestResult[Any]) -> None:
         status_mapping: dict[int | tuple[int, ...], type] = {(200, 201): UserDTO, 404: NotFoundDTO, 500: ErrorDTO}
 
-        result: UserDTO | NotFoundDTO | ErrorDTO = request_result.parse_with(dict_config(status_mapping))
+        result: UserDTO | NotFoundDTO | ErrorDTO = await request_result.parse_with(dict_config(status_mapping))
 
         assert isinstance(result, UserDTO)
         assert result.id == 1
         assert result.name == 'John Doe'
 
-    def test_parse_with_dict_mapping_enum(self, request_result: RequestResult[Any]) -> None:
+    async def test_parse_with_dict_mapping_enum(self, request_result: RequestResult[Any]) -> None:
         request_result.status_code = 503
         request_result._response_body = json.dumps({'error': 'Service Unavailable', 'code': 503}).encode('utf-8')
         status_mapping: dict[int | StatusCodeFamily, type] = {200: UserDTO, StatusCodeFamily.SERVER_ERROR: ErrorDTO}
 
-        result: UserDTO | ErrorDTO = request_result.parse_with(dict_config(status_mapping))
+        result: UserDTO | ErrorDTO = await request_result.parse_with(dict_config(status_mapping))
 
         assert isinstance(result, ErrorDTO)
         assert result.error == 'Service Unavailable'
         assert result.code == 503
 
-    def test_parse_with_dict_mapping_unexpected(self, request_result: RequestResult[Any]) -> None:
+    async def test_parse_with_dict_mapping_unexpected(self, request_result: RequestResult[Any]) -> None:
         request_result.status_code = 503
         status_mapping: dict[int, type] = {200: UserDTO, 400: ErrorDTO}
 
         with pytest.raises(ParsingError):
-            request_result.parse_with(dict_config(status_mapping))
+            await request_result.parse_with(dict_config(status_mapping))
 
-    def test_parse_with_user_function(self, request_result: RequestResult[Any]) -> None:
+    async def test_parse_with_user_function(self, request_result: RequestResult[Any]) -> None:
         request_result.status_code = 404
         request_result._response_body = json.dumps({'error': 'Not found', 'code': 404}).encode('utf-8')
 
@@ -137,7 +137,7 @@ class TestResponseParsing:
             error = json.loads(response_body)['error']
             return ErrorDTO(error=error, code=status_code)
 
-        result: UserDTO | ErrorDTO = request_result.parse_with(custom_parse)
+        result: UserDTO | ErrorDTO = await request_result.parse_with(custom_parse)
 
         assert isinstance(result, ErrorDTO)
         assert result.error == 'Not found'
