@@ -32,7 +32,7 @@ RESPONSE_TIME_TRACKER_WINDOW = 500
 WARM_UP_DEFAULT_TIME_MILLIS = 100
 LOWEST_HEALTH_PERCENT = 2
 LOWEST_HEALTH = int(LOWEST_HEALTH_PERCENT * DOWNTIME_DETECTOR_WINDOW / 100)
-INITIAL_LIVE_PERCENT = 10
+INITIAL_HEALTH_PERCENT = 10
 
 http_client_logger = logging.getLogger('http_client')
 
@@ -49,17 +49,17 @@ class DowntimeDetector:
         self._ensure_initialized()
         return self._health
 
-    def initialize(self, initial_live_percent: int | None = None) -> None:
+    def initialize(self, initial_health_percent: int | None = None) -> None:
         if self._initialized:
             return
 
-        if initial_live_percent is None:
-            initial_live_percent = INITIAL_LIVE_PERCENT
+        if initial_health_percent is None:
+            initial_health_percent = INITIAL_HEALTH_PERCENT
 
-        if initial_live_percent < 0 or initial_live_percent > 100:
-            raise ValueError(f'Invalid initial_live_percent value: {initial_live_percent}')
+        if initial_health_percent < 0 or initial_health_percent > 100:
+            raise ValueError(f'Invalid initial_live_percent value: {initial_health_percent}')
 
-        ones = self.max_length * initial_live_percent // 100
+        ones = self.max_length * initial_health_percent // 100
         self.healths.extend([0] * (self.max_length - ones))
         self.healths.extend([1] * ones)
         self._health = ones
@@ -68,7 +68,7 @@ class DowntimeDetector:
     def _ensure_initialized(self) -> None:
         if not self._initialized:
             # Initialize with default value if not explicitly initialized
-            self.initialize(INITIAL_LIVE_PERCENT)
+            self.initialize(INITIAL_HEALTH_PERCENT)
 
     def add_fail(self):
         self._ensure_initialized()
@@ -261,9 +261,6 @@ class UpstreamConfig:
         self.session_required = (
             options.http_client_default_session_required if session_required is None else session_required
         ) is True
-        self.initial_health_percent = int(
-            INITIAL_LIVE_PERCENT if initial_health_percent is None else initial_health_percent
-        )
 
     def __repr__(self):
         return (
