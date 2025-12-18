@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import abc
 import asyncio
 import contextvars
 import time
 from asyncio import TimeoutError
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ClientError, ServerTimeoutError
 
+from http_client.balancing import RequestBalancerBuilder, RequestEngineBuilder, Upstream
 from http_client.options import options
 from http_client.request_response import (
     CLIENT_ERROR,
@@ -22,31 +22,13 @@ from http_client.request_response import (
 )
 from http_client.util import set_contextvar
 
+if TYPE_CHECKING:
+    from aiokafka import AIOKafkaProducer
+    from pystatsd import StatsDClientABC
+
 current_client_request = contextvars.ContextVar('current_client_request')
 current_client_request_status = contextvars.ContextVar('current_client_request_status')
 extra_client_params = contextvars.ContextVar('extra_client_params', default=(None, False))
-
-
-class RequestEngine(abc.ABC):
-    @abc.abstractmethod
-    async def execute(self) -> RequestResult:
-        raise NotImplementedError
-
-
-class RequestEngineBuilder(abc.ABC):
-    @abc.abstractmethod
-    def build(
-        self,
-        request: RequestBuilder,
-        profile,
-        execute_request,
-        modify_http_request_hook,
-        debug_enabled,
-        parse_response,
-        parse_on_error,
-        fail_fast,
-    ) -> RequestEngine:
-        raise NotImplementedError
 
 
 class HttpClient:
@@ -399,10 +381,20 @@ class AIOHttpClientWrapper:
 
 
 class HttpClientFactory:
-    def __init__(self, source_app: str, request_engine_builder: RequestEngineBuilder) -> None:
+    def __init__(
+        self,
+        source_app: str,
+        upstream_getter: Callable[[str], Upstream | None],
+        statsd_client: StatsDClientABC | None = None,
+        kafka_producer: AIOKafkaProducer | None = None,
+    ) -> None:
         self.http_client = AIOHttpClientWrapper()
-        self.source_app = source_app
-        self.request_engine_builder = request_engine_builder
+        self.source_app = source_app  # for User-Agent header
+        self.request_engine_builder = RequestBalancerBuilder(
+            upstream_getter=upstream_getter,
+            statsd_client=statsd_client,
+            kafka_producer=kafka_producer,
+        )
 
     def get_http_client(self) -> HttpClient:
         return HttpClient(self.http_client, self.source_app, self.request_engine_builder)

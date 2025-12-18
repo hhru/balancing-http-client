@@ -3,7 +3,7 @@ import socket
 import pytest
 
 from http_client import HttpClientFactory, options
-from http_client.balancing import RequestBalancerBuilder, Server, Upstream, UpstreamConfig, UpstreamConfigs
+from http_client.balancing import Server, Upstream, UpstreamConfig, UpstreamConfigs
 
 
 class TestBase:
@@ -24,8 +24,8 @@ _upstreams = {}
 class BalancingClientMixin:
     @pytest.fixture(scope='function', autouse=True)
     async def setup_http_client_factory(self):
-        self.request_balancer_builder = RequestBalancerBuilder(upstream_getter=_upstreams.get)
-        self.http_client_factory = HttpClientFactory('testapp', self.request_balancer_builder)
+        self.http_client_factory = HttpClientFactory('testapp', upstream_getter=_upstreams.get)
+        self.request_balancer_builder = self.http_client_factory.request_engine_builder
         self.balancing_client = self.http_client_factory.get_http_client()
         options.datacenter = 'test'
 

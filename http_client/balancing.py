@@ -1,28 +1,34 @@
 from __future__ import annotations
 
+import abc
 import asyncio
 import collections
 import logging
 import time
 from asyncio import Future
 from collections import OrderedDict
-from collections.abc import Callable
 from enum import Enum, unique
 from random import random
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 from typing_extensions import Self, override
 
-from http_client import RequestBuilder, RequestEngine, RequestEngineBuilder, RequestResult
 from http_client.exceptions import NoAvailableServerError
 from http_client.model.consul_config import RetryPolicies
 from http_client.options import options
-from http_client.request_response import FailFastError, ResponseData
+from http_client.request_response import (
+    FailFastError,
+    RequestBuilder,
+    RequestResult,
+    ResponseData,
+)
 from http_client.util import utf8, weighted_sample
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from aiokafka import AIOKafkaProducer
     from pystatsd import StatsDClientABC
 
@@ -35,6 +41,28 @@ LOWEST_HEALTH = int(LOWEST_HEALTH_PERCENT * DOWNTIME_DETECTOR_WINDOW / 100)
 INITIAL_HEALTH_PERCENT = 10
 
 http_client_logger = logging.getLogger('http_client')
+
+
+class RequestEngine(abc.ABC):
+    @abc.abstractmethod
+    async def execute(self) -> RequestResult[Any]:
+        raise NotImplementedError
+
+
+class RequestEngineBuilder(abc.ABC):
+    @abc.abstractmethod
+    def build(
+        self,
+        request: RequestBuilder,
+        profile: str,
+        execute_request: Callable[[RequestBuilder], Coroutine[Any, Any, RequestResult[Any]]],
+        modify_http_request_hook: Callable[[RequestBuilder], None] | None,
+        debug_enabled: bool,
+        parse_response: bool,
+        parse_on_error: bool,
+        fail_fast: bool,
+    ) -> RequestEngine:
+        raise NotImplementedError
 
 
 class DowntimeDetector:
