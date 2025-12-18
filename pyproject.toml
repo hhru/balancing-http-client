@@ -49,5 +49,5 @@ addopts = '''
 
 [tool.ruff.lint]
 ignore = [
-    'ANN401','PLR2004',
+    'ANN401','PLR2004','FBT001'
 ]
