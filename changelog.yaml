@@ -1,3 +1,16 @@
+-   name: 7.0.0
+    date: '2025-12-18T15:47:41.176463+03:00'
+    description: RequestBalancerBuilder теперь по умолчанию создается в фактори
+    instructions: "поменять \r\n        request_balancer_builder = RequestBalancerBuilder(\r\
+        \n            upstream_getter=self.service_discovery.get_upstream,\r\n   \
+        \         statsd_client=self.statsd_client,\r\n            kafka_producer=kafka_producer,\r\
+        \n        )\r\n        return HttpClientFactory(self.app_name, request_balancer_builder)\r\
+        \n\r\nна \r\n\r\n        return HttpClientFactory(\r\n            source_app=self.app_name,\r\
+        \n            upstream_getter=self.service_discovery.get_upstream,\r\n   \
+        \         statsd_client=self.statsd_client,\r\n            kafka_producer=kafka_producer\r\
+        \n        )"
+    compatible: false
+
 -   name: 6.0.0
     date: '2025-12-11T14:00:14.791532+03:00'
     description: ''
